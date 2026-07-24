@@ -191,6 +191,17 @@
             overflow-wrap: anywhere;
         }
 
+        /* 音色操作按钮组（重命名 / 导出 / 删除），仅 deletable 音色显示 */
+        .voice-actions { grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .voice-actions button {
+            border: 1px solid #cbd6e8; background: #fff; color: var(--accent-dark); border-radius: 6px;
+            cursor: pointer; font-size: 12px; font-weight: 700; padding: 5px 9px; white-space: nowrap;
+        }
+        .voice-actions button:hover { border-color: var(--accent); background: var(--accent-soft); }
+        .voice-actions button[data-action="sync"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+        .voice-actions button[data-action="sync"]:hover { background: var(--accent-dark); }
+        .voice-actions button.del { background: #f3e3e1; color: var(--danger); }
+
         .voice-error {
             color: var(--danger);
             font-size: 12px;
@@ -201,7 +212,7 @@
         .voice-create { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
         .voice-create > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 11px 13px; color: var(--accent-dark); font-size: 13px; font-weight: 800; }
         .voice-create > summary::-webkit-details-marker { display: none; }
-        .voice-create > summary::after { content: "+"; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 17px; }
+        .voice-create > summary::after { content: "+"; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 17px; line-height: 1; }
         .voice-create[open] > summary::after { content: "−"; }
         .voice-create-body { border-top: 1px solid var(--line); padding: 14px; }
         .voice-guide { display: grid; gap: 7px; margin-bottom: 12px; }
@@ -507,37 +518,6 @@
             </div>
         </section>
 
-        <!-- 批量文本生成 -->
-        <section class="panel">
-            <div class="panel-head">
-                <div class="panel-title">批量生成音频</div>
-                <div class="count">每行生成一条音频</div>
-            </div>
-            <div class="panel-body">
-                <div class="block">
-                    <label class="field-label" for="batchText">批量文本</label>
-                    <textarea class="text-input" id="batchText" rows="6" placeholder="每行输入一条旁白文本..."></textarea>
-                    <div class="hint">最多 500 行；结果会打包为 ZIP（音频文件和 manifest.json）。</div>
-                </div>
-                <button class="primary" id="batchGenerateBtn" type="button">开始批量生成</button>
-                <div class="progress-card" id="batchProgressCard">
-                    <div class="wait-line">
-                        <span class="spinner" id="batchSpinner"></span>
-                        <div>
-                            <div class="wait-title">批量生成中</div>
-                            <div class="wait-sub" id="batchWaitSub">已用时 0 秒</div>
-                        </div>
-                    </div>
-                    <div class="bar"><div class="fill" id="batchProgressFill"></div></div>
-                    <div class="progress-text" id="batchProgressText">准备中...</div>
-                </div>
-                <div class="result-area" id="batchResultArea">
-                    <div class="field-label">批量结果</div>
-                    <div class="result-actions"><a class="dl-btn" id="batchDownloadBtn" download>下载批量结果（ZIP）</a></div>
-                </div>
-            </div>
-        </section>
-
         <!-- 历史记录 -->
         <section class="panel">
             <div class="panel-head">
@@ -591,15 +571,6 @@
             const audioPlayer = $('audioPlayer');
             const downloadBtn = $('downloadBtn');
             const reuseBtn = $('reuseBtn');
-            const batchText = $('batchText');
-            const batchGenerateBtn = $('batchGenerateBtn');
-            const batchProgressCard = $('batchProgressCard');
-            const batchSpinner = $('batchSpinner');
-            const batchWaitSub = $('batchWaitSub');
-            const batchProgressFill = $('batchProgressFill');
-            const batchProgressText = $('batchProgressText');
-            const batchResultArea = $('batchResultArea');
-            const batchDownloadBtn = $('batchDownloadBtn');
             const historyList = $('historyList');
             const historyCount = $('historyCount');
             const voiceCreateForm = $('voiceCreateForm');
@@ -680,6 +651,13 @@
                     const statusLabel = v.available === false
                         ? (v.availability_reason || '当前不可用')
                         : typeLabel;
+                    const actionParts = [];
+                    if (v.deletable) {
+                        actionParts.push(`<button type="button" data-action="rename" title="重命名">重命名</button>`);
+                        actionParts.push(`<button type="button" data-action="download" title="导出参考音频">导出</button>`);
+                        actionParts.push(`<button type="button" class="del" data-action="delete" title="删除">删除</button>`);
+                    }
+                    const actions = actionParts.length ? `<div class="voice-actions">${actionParts.join('')}</div>` : '';
                     return `
                         <div class="voice-item${selected}${unavailable}" data-id="${escapeHtml(v.id)}">
                             <span class="voice-dot"></span>
@@ -687,6 +665,7 @@
                                 <span class="voice-name">${escapeHtml(v.name)}</span>
                                 <span class="voice-tag">${escapeHtml(statusLabel)}</span>
                             </div>
+                            ${actions}
                         </div>
                     `;
                 }).join('');
@@ -699,6 +678,18 @@
             }
 
             voiceList.addEventListener('click', (event) => {
+                // 先判断是否点中操作按钮（重命名 / 导出 / 删除），点操作按钮时不触发选中
+                const actionBtn = event.target.closest('[data-action]');
+                if (actionBtn) {
+                    const item = actionBtn.closest('.voice-item');
+                    if (!item) return;
+                    const id = item.dataset.id;
+                    const action = actionBtn.dataset.action;
+                    if (action === 'rename') { handleRename(id); return; }
+                    if (action === 'delete') { handleDelete(id); return; }
+                    if (action === 'download') { downloadVoice(id); return; }
+                    return;
+                }
                 const item = event.target.closest('.voice-item');
                 if (!item) return;
                 const id = item.dataset.id;
@@ -712,6 +703,67 @@
                 state.selectedVoiceId = id;
                 renderVoices();
             });
+
+            // ===== 克隆音色操作：重命名 / 删除 / 导出 =====
+            async function handleRename(id) {
+                const voice = state.voices.find((v) => v.id === id);
+                if (!voice) return;
+                const name = window.prompt('重命名音色：', voice.name);
+                if (name === null) return;
+                const trimmed = name.trim();
+                if (!trimmed) return;
+                try {
+                    const res = await fetch(`${API_BASE}/voices/${encodeURIComponent(id)}/rename`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: trimmed }),
+                    });
+                    const data = await safeReadJson(res);
+                    if (!res.ok) throw new Error(data.error || '重命名失败');
+                    showSuccess(`已重命名音色为「${trimmed}」`);
+                    await loadVoices();
+                } catch (err) {
+                    showError(err.message || '重命名失败');
+                }
+            }
+
+            async function handleDelete(id) {
+                if (!window.confirm('确定删除该克隆音色？此操作不可恢复。')) return;
+                try {
+                    const res = await fetch(`${API_BASE}/voices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                    const data = await safeReadJson(res);
+                    if (!res.ok) throw new Error(data.error || '删除失败');
+                    if (state.selectedVoiceId === id) {
+                        state.selectedVoiceId = 'default';
+                        updateSelectedLabel();
+                    }
+                    showSuccess('已删除克隆音色');
+                    await loadVoices();
+                } catch (err) {
+                    showError(err.message || '删除失败');
+                }
+            }
+
+            async function downloadVoice(id) {
+                try {
+                    const res = await fetch(`${API_BASE}/voices/${encodeURIComponent(id)}/download`);
+                    if (!res.ok) throw new Error('导出失败');
+                    const blob = await res.blob();
+                    const voice = state.voices.find((v) => v.id === id);
+                    const fname = `${(voice ? voice.name : id).replace(/[\\/:*?"<>|]/g, '_')}.wav`;
+                    const objUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = objUrl;
+                    a.download = fname;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+                    showSuccess('已导出克隆参考音频');
+                } catch (err) {
+                    showError(err.message || '导出失败');
+                }
+            }
 
             // ===== Create cloned voice =====
             function setVoiceCreateStatus(message, type) {
@@ -999,85 +1051,6 @@
             reuseBtn.addEventListener('click', () => {
                 resultArea.classList.remove('active');
                 textInput.focus();
-            });
-
-            // ===== Batch generation =====
-            let batchTimer = null;
-            let batchStartedAt = 0;
-
-            function stopBatchProgress() {
-                if (batchTimer) { clearInterval(batchTimer); batchTimer = null; }
-                batchSpinner.classList.remove('active');
-            }
-
-            async function pollBatchStatus(taskId) {
-                batchTimer = setInterval(async () => {
-                    try {
-                        const res = await fetch(`${API_BASE}/status/${encodeURIComponent(taskId)}`);
-                        const task = await safeReadJson(res);
-                        if (!res.ok) throw new Error(task.error || '获取批量任务状态失败');
-                        batchProgressFill.style.width = `${Number(task.progress) || 0}%`;
-                        batchProgressCard.classList.toggle('indeterminate', Boolean(task.indeterminate));
-                        batchProgressText.textContent = task.message || '处理中...';
-                        batchWaitSub.textContent = `已用时 ${formatTime(Math.round((Date.now() - batchStartedAt) / 1000))}`;
-                        if (task.status === 'completed') {
-                            stopBatchProgress();
-                            batchProgressCard.classList.remove('indeterminate');
-                            batchGenerateBtn.disabled = false;
-                            batchDownloadBtn.href = window.location.origin + task.zip_url;
-                            batchResultArea.classList.add('active');
-                            showSuccess(task.message || '批量音频生成完成');
-                        } else if (task.status === 'failed' || task.status === 'cancelled') {
-                            stopBatchProgress();
-                            batchProgressCard.classList.remove('indeterminate');
-                            batchGenerateBtn.disabled = false;
-                            batchProgressCard.classList.remove('active');
-                            showError(task.message || '批量音频生成失败');
-                        }
-                    } catch (err) {
-                        stopBatchProgress();
-                        batchGenerateBtn.disabled = false;
-                        batchProgressCard.classList.remove('active');
-                        showError(err.message || '获取批量任务状态失败');
-                    }
-                }, 1000);
-            }
-
-            batchGenerateBtn.addEventListener('click', async () => {
-                const lines = (batchText.value || '').split('\n').map((line) => line.trim()).filter(Boolean);
-                if (!lines.length) {
-                    showError('请至少输入一行批量文本');
-                    batchText.focus();
-                    return;
-                }
-                batchGenerateBtn.disabled = true;
-                clearError();
-                batchResultArea.classList.remove('active');
-                batchProgressCard.classList.add('active');
-                batchProgressCard.classList.remove('indeterminate');
-                batchSpinner.classList.add('active');
-                batchProgressFill.style.width = '5%';
-                batchProgressText.textContent = '提交中...';
-                batchStartedAt = Date.now();
-                try {
-                    const res = await fetch(`${API_BASE}/tts/batch`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            lines,
-                            voice: state.selectedVoiceId,
-                            speed: parseFloat(speedRange.value),
-                        }),
-                    });
-                    const data = await safeReadJson(res);
-                    if (!res.ok) throw new Error(data.error || '提交批量任务失败');
-                    pollBatchStatus(data.task_id);
-                } catch (err) {
-                    stopBatchProgress();
-                    batchGenerateBtn.disabled = false;
-                    batchProgressCard.classList.remove('active');
-                    showError(err.message || '提交批量任务失败');
-                }
             });
 
             // ===== History =====
