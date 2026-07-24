@@ -3,13 +3,14 @@
 """复现 HTTP 路径 batch_generate_tts：打印每段 cache_key / 是否命中 / 最终时长。"""
 import os, sys, time, glob, json
 
-SRC="C:/Users/12992/Desktop/work/code/toolbax/src"
-ROOT="C:/Users/12992/Desktop/work/code/toolbax"
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)  # 项目根（scripts/ 的上一级）
+SRC = os.path.join(ROOT, "src")
 sys.path.insert(0, SRC)
 os.chdir(ROOT)
 
 import toolbax as pipeline
-pipeline.OUTPUT_FOLDER = "C:/Users/12992/Desktop"
+pipeline.OUTPUT_FOLDER = os.path.join(ROOT, "output")
 pipeline.init_output_folders()
 
 TEXT="新短句验证七八九十海边看夕阳了"  # 与之前 HTTP 测试同文本

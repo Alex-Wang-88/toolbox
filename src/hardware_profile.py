@@ -60,9 +60,18 @@ def runtime_path():
 
 
 def find_tool_executable(tool_name):
+    """跨平台查找外部工具可执行文件，优先返回 PATH 上的裸命令名（不落盘绝对路径）。
+
+    返回：
+    - PATH 上能找到时：返回裸命令名（如 "ffmpeg"），便于运行时探测，不把绝对路径
+      写进 hardware_profile.json 等运行时产物；
+    - Windows (WinGet) / macOS (Homebrew) 已知安装目录命中时：返回该绝对路径；
+    - 都找不到时：返回 None。
+    """
     tool_path = shutil.which(tool_name)
     if tool_path:
-        return tool_path
+        # 仅在 PATH 命中时返回裸命令名，避免持久化绝对路径
+        return tool_name
 
     # Windows: 查找 winget 安装的工具
     if os.name == "nt":

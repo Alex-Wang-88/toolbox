@@ -4,6 +4,7 @@
 import json
 import subprocess
 import sys
+import os
 import time
 import urllib.request
 import urllib.error
@@ -36,7 +37,7 @@ def post_quick():
 
 
 def probe_duration(rel_url):
-    out_path = "C:/Users/12992/Desktop/work/code/toolbax/_crystal_test_out.mp3"
+    out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_crystal_test_out.mp3")
     dl = urllib.request.Request(BASE + rel_url, method="GET")
     with urllib.request.urlopen(dl, timeout=60) as r:
         with open(out_path, "wb") as f:

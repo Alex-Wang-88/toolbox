@@ -3,8 +3,9 @@
 """直接调 worker.synthesize（cache_keys=None 强制真实合成），看 15 字短文本 worker 真实产出。"""
 import os, sys, time, glob, json
 
-SRC="C:/Users/12992/Desktop/work/code/toolbax/src"
-ROOT="C:/Users/12992/Desktop/work/code/toolbax"
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)  # 项目根（scripts/ 的上一级）
+SRC = os.path.join(ROOT, "src")
 sys.path.insert(0, SRC)
 os.chdir(ROOT)
 

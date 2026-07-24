@@ -69,16 +69,38 @@ def _resolve_worker_stderr(log_path: str = None):
 
 # ---- venv python 解析（指向 tts_poc/ 下的独立 venv）----
 
-def resolve_cosyvoice_python() -> str:
-    """解析 CosyVoice 运行环境的 python 可执行文件（CosyVoice3 复用）。"""
-    env = os.environ.get("COSYVOICE_VENV", "").strip()
+def _resolve_venv_python(env_var: str) -> str:
+    """按优先级解析 CosyVoice venv 的 python 可执行文件（跨平台兼容）。
+
+    探测顺序（任一存在即返回绝对路径）：
+    1. 环境变量指定的 python（COSYVOICE_VENV / COSYVOICE3_VENV）
+    2. tts_poc/venv_cosyvoice/Scripts/python.exe   （Windows venv）
+    3. tts_poc/venv_cosyvoice/bin/python            （Linux/macOS venv）
+    4. 当前解释器 sys.executable（兜底）
+
+    即使克隆因无 CUDA 不可用，也能找到一个解释器，避免 Linux/macOS 因
+    “找不到 .exe” 直接崩溃（真正的可用性由 gpu_setup.check_dependency 门禁决定）。
+    """
+    env = os.environ.get(env_var, "").strip()
     if env and os.path.isfile(env):
         return os.path.realpath(env)
-    candidate = os.path.join(
-        _project_root(), "tts_poc", "venv_cosyvoice", "Scripts", "python.exe"
-    )
-    candidate = os.path.realpath(candidate)
-    return candidate if os.path.isfile(candidate) else None
+    venv_dir = os.path.join(_project_root(), "tts_poc", "venv_cosyvoice")
+    candidates = [
+        os.path.join(venv_dir, "Scripts", "python.exe"),
+        os.path.join(venv_dir, "bin", "python"),
+        os.path.join(venv_dir, "bin", "python3"),
+    ]
+    for c in candidates:
+        rc = os.path.realpath(c)
+        if os.path.isfile(rc):
+            return rc
+    # 最后兜底：当前解释器（保证 Linux/macOS 不会因“找不到 exe”崩溃）
+    return os.path.realpath(sys.executable) if os.path.isfile(sys.executable) else None
+
+
+def resolve_cosyvoice_python() -> str:
+    """解析 CosyVoice 运行环境的 python 可执行文件（CosyVoice3 复用）。"""
+    return _resolve_venv_python("COSYVOICE_VENV")
 
 
 def resolve_cosyvoice3_python() -> str:
@@ -87,10 +109,10 @@ def resolve_cosyvoice3_python() -> str:
     CosyVoice3 与 CosyVoice2 共享同一份 CosyVoice 仓库代码（CosyVoice3 继承自
     CosyVoice2），仅权重不同，因此直接复用 venv_cosyvoice。
     """
+    # 优先用专属环境变量，其次复用 CosyVoice 的 venv 解析逻辑
     env = os.environ.get("COSYVOICE3_VENV", "").strip()
     if env and os.path.isfile(env):
         return os.path.realpath(env)
-    # 复用 CosyVoice 的 venv（同仓库代码，仅权重不同）
     return resolve_cosyvoice_python()
 
 

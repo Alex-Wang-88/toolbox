@@ -1294,7 +1294,14 @@ def get_subtitle_font(size: int=42):
 def _get_chinese_font_paths() -> list:
     """返回当前平台可用的中文字体路径列表（按优先级排序）。"""
     if os.name == 'nt':
-        return ['C:\\Windows\\Fonts\\msyh.ttc', 'C:\\Windows\\Fonts\\simhei.ttf', 'C:\\Windows\\Fonts\\simsun.ttc']
+        # 不再写死 C:\ 绝对路径：用 WINDIR 环境变量推导（默认 C:/Windows），
+        # 仍受 os.name == 'nt' 守卫，非 Windows 不会执行到这里。
+        win_fonts = os.path.join(os.environ.get('WINDIR', 'C:/Windows'), 'Fonts')
+        return [
+            os.path.join(win_fonts, 'msyh.ttc'),
+            os.path.join(win_fonts, 'simhei.ttf'),
+            os.path.join(win_fonts, 'simsun.ttc'),
+        ]
     elif sys.platform == 'darwin':
         return ['/System/Library/Fonts/PingFang.ttc', '/System/Library/Fonts/STHeiti Light.ttc', '/System/Library/Fonts/Hiragino Sans GB.ttc', '/Library/Fonts/Arial Unicode.ttf']
     else:

@@ -1,0 +1,5 @@
+# 强制脚本类文件使用正确的行尾，保证跨平台可移植性
+# shell 脚本必须保持 LF，否则 Linux/macOS 的 shebang 会被 \r 破坏
+*.sh text eol=lf
+# Windows 批处理保持 CRLF
+*.bat text eol=crlf

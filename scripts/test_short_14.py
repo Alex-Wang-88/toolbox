@@ -15,7 +15,7 @@ def post_quick():
         return resp.status, json.loads(resp.read().decode("utf-8"))
 
 def probe_duration(rel_url):
-    out = "C:/Users/12992/Desktop/work/code/toolbax/_short_test_out.mp3"
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_short_test_out.mp3")
     with urllib.request.urlopen(BASE + rel_url, timeout=60) as r:
         with open(out, "wb") as f:
             f.write(r.read())

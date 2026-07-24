@@ -5,11 +5,15 @@ import requests
 import json
 import time
 import sys
+import os
 
 def main():
     # 1. 上传参考音频
     print('1. 上传参考音频...')
-    with open(r'C:\Users\12992\Documents\录音\ref_audio.wav', 'rb') as f:
+    HERE = os.path.dirname(os.path.abspath(__file__))
+    ROOT = os.path.dirname(HERE)  # 项目根（tests/ 的上一级）
+    ref_audio_path = os.environ.get("TOOLBAX_TEST_REF_AUDIO") or os.path.join(ROOT, "test_inputs", "ref_audio.wav")
+    with open(ref_audio_path, 'rb') as f:
         resp = requests.post('http://localhost:5000/api/voices/upload', 
                            files={'file': ('ref_audio.wav', f, 'audio/wav')})
     upload_result = resp.json()

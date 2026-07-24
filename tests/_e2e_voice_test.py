@@ -77,9 +77,9 @@ edge_tts.Communicate.__init__ = _patched_comm_init
 # ── 路径常量 ──
 REF_CLIP = os.path.join(ROOT, "test_inputs", "voice_changkai_clip8s.wav")
 REF_TEXT_FILE = os.path.join(ROOT, "test_inputs", "ref_text_changkai.txt")
-PDF_PATH = os.path.join(
-    "C:/Users/12992/Desktop/work/培训讲课/杭州沄荣科技有限公司简介（简易版）_5页.pdf"
-)
+# 测试用 PDF 源文件：默认在项目内 test_inputs/ 下；可用环境变量 TOOLBAX_TEST_PDF 覆盖
+# （原路径为开发者本机绝对路径，已改为相对/可配置，避免泄露与跨机失效）
+PDF_PATH = os.environ.get("TOOLBAX_TEST_PDF") or os.path.join(ROOT, "test_inputs", "e2e_source.pdf")
 DATA_ROOT = os.path.join(ROOT, "app_data")
 OUTPUT_DIR = os.path.join(ROOT, "output")
 DATE_TAG = time.strftime("%Y%m%d")

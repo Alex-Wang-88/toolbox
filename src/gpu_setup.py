@@ -124,8 +124,17 @@ def check_dependency():
     ]
     if not all(os.path.isfile(os.path.join(model_dir, f)) for f in needed):
         return (False, None)
-    venv_py = os.path.join(root, "tts_poc", "venv_cosyvoice", "Scripts", "python.exe")
-    if not os.path.isfile(venv_py):
+    venv_py = None
+    for rel in (
+        os.path.join("venv_cosyvoice", "Scripts", "python.exe"),
+        os.path.join("venv_cosyvoice", "bin", "python"),
+        os.path.join("venv_cosyvoice", "bin", "python3"),
+    ):
+        cand = os.path.join(root, "tts_poc", rel)
+        if os.path.isfile(cand):
+            venv_py = cand
+            break
+    if not venv_py:
         return (False, None)
     matcha = os.path.join(root, "tts_poc", "CosyVoice", "third_party", "Matcha-TTS")
     if not os.path.isdir(matcha):
