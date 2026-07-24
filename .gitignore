@@ -1,0 +1,93 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# 环境配置（含 API Key，不能提交）
+.env
+
+# 运行时产生的文件
+temp_uploads/
+output/
+app_data/
+solution_video_runs/
+test_run_final/
+word_img_*/
+*.mp4
+
+# 打包产物（体积大，可重新生成）
+build/
+dist/
+release/
+
+# 注意：config/AI图片讲解视频生成器.spec 需要纳入版本控制
+
+# IDE 和系统文件
+.vscode/
+.idea/
+.workbuddy/
+.DS_Store
+Thumbs.db
+
+# 日志和临时文件
+*.log
+server_verify.out.log
+test_output.txt
+hardware_profile.json
+runtime_profile.json
+output_settings.json
+
+# 测试图片和示例文件
+1.png
+2.png
+3.png
+4.png
+agent_real_script_*.mp4
+
+# vendor 中的大安装包
+vendor/*.msi
+vendor/*.exe
+
+test_stderr*.txt
+test_stdout*.txt
+
+# XTTS 语音克隆运行时产物（权重体积大、用户音色含隐私，禁止提交）
+app_data/xtts_models/
+app_data/voices/
+app_data/xtts_verify_*.mp3
+app_data/xtts_verify_*.wav
+
+# 打包构建依赖（体积大，可由 ffmpeg 官方包重新放置，不纳入版本控制）
+bin/
+
+# GPT-SoVITS v4 依赖（第三方仓库，作为本地依赖放置，不纳入版本控制）
+GPT-SoVITS/
+venv_gptsovits/
+
+# 构建变体标记（gpu/cpu），每次构建由 build_exes.py 重新写入，属临时状态
+variant.txt
+
+# 临时平台适配文件（非本 Windows 项目发布内容）
+check_env.py
+test_gpu_accel.py
+test_gpu_e2e_real.py
+mac_build.sh
+mac_adaptation_complete_20260703.md
+图片AI视频生成器方案说明.pptx
+
+# ===== 巨型 vendored 依赖与素材（体积太大，禁止纳入版本控制）=====
+# 内置 Python 解释器（约 316 MB）
+runtime/
+# CosyVoice3 引擎 + torch venv + 9.1GB 模型权重（约 15 GB）
+tts_poc/
+# 各类素材与运行时产物
+audio_assets/
+training_assets/
+test_inputs/
+video-dubbing/
+cleanup_trash_20260724/
+# Python 缓存（双保险）
+__pycache__/
+*.pyc

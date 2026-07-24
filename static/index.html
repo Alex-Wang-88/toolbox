@@ -1,0 +1,2683 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音视频工具</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        /* ===== 专业亲和浅色主题（贴合中国用户审美） ===== */
+        :root {
+            --bg: #f5f7fb;
+            --panel: #ffffff;
+            --soft: #f2f4f8;
+            --line: #e6eaf1;
+            --text: #1b2436;
+            --muted: #5a6477;
+            --accent: #2b5cff;
+            --accent-dark: #1e47d6;
+            --accent-soft: #eaf1ff;
+            --violet: #7d5cff;
+            --success: #16a34a;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --shadow-sm: 0 1px 2px rgba(15, 20, 25, 0.04);
+            --shadow: 0 4px 12px rgba(15, 20, 25, 0.06);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --radius-pill: 100px;
+        }
+
+        body {
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Source Han Sans CN", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+            padding: 24px;
+            line-height: 1.6;
+            letter-spacing: 0.01em;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+
+        button, input, select, textarea { font: inherit; }
+        .app { max-width: 1220px; margin: 0 auto; }
+
+        .top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        h1 { font-size: 22px; line-height: 1.25; font-weight: 700; }
+        h1 small { display: block; font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
+
+        .state {
+            min-width: 96px;
+            border: 1px solid transparent;
+            border-radius: var(--radius-pill);
+            background: var(--accent-soft);
+            color: var(--accent);
+            padding: 7px 16px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .dl-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 100%; min-height: 40px; background: var(--accent); color: #fff;
+            border: 0; border-radius: 9px; font-weight: 800; text-decoration: none;
+            cursor: pointer; margin-top: 8px;
+        }
+        .dl-btn:hover { background: var(--accent-dark); }
+
+        /* ===== 步骤条 Stepper ===== */
+        .stepper {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .step-nav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: var(--panel);
+            padding: 14px 18px;
+            cursor: pointer;
+            box-shadow: var(--shadow-sm);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+            width: 100%; color: inherit; text-align: left; font: inherit;
+        }
+        .step-nav:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
+        .step-nav:disabled { cursor: not-allowed; opacity: 0.58; transform: none; box-shadow: var(--shadow-sm); }
+        .step-nav.active {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(43, 92, 255, 0.12);
+        }
+        .step-nav.done { border-color: var(--line); background: var(--soft); }
+
+        .step-num {
+            flex: 0 0 auto;
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: var(--soft);
+            border: 1px solid var(--line);
+            color: var(--muted);
+            font-weight: 800; font-size: 14px;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+        .step-nav.active .step-num { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .step-nav.done .step-num { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+
+        .step-label { display: flex; flex-direction: column; }
+        .step-label .t { font-size: 14px; font-weight: 700; color: var(--text); }
+        .step-label .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+        /* ===== 通用面板 ===== */
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 340px;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .panel-title { font-size: 15px; font-weight: 700; color: var(--text); }
+        .count { color: var(--muted); font-size: 13px; }
+        .panel-heading { min-width: 0; }
+        .panel-subtitle { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+        .app-notice {
+            display: none; align-items: flex-start; justify-content: space-between; gap: 12px;
+            margin-bottom: 14px; padding: 11px 14px; border: 1px solid #bfd0ff; border-radius: 10px;
+            background: var(--accent-soft); color: var(--accent-dark); font-size: 13px;
+            position: sticky; top: 68px; z-index: 45; box-shadow: var(--shadow-sm);
+        }
+        .app-notice.active { display: flex; }
+        .app-notice.error { border-color: #f5b8b8; background: #fff0f0; color: #b42318; }
+        .app-notice.success { border-color: #b7dfc4; background: #edf9f1; color: #237a43; }
+        .app-notice button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 18px; line-height: 1; }
+
+        /* ===== 上传区 ===== */
+        .upload {
+            margin: 16px;
+            min-height: 150px;
+            border: 2px dashed #c3d0ee;
+            border-radius: var(--radius);
+            background: var(--accent-soft);
+            display: grid;
+            place-items: center;
+            text-align: center;
+            padding: 24px;
+            cursor: pointer;
+            transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+        }
+        .upload:hover, .upload.dragover { border-color: var(--accent); background: #e2ecff; box-shadow: var(--shadow-sm); }
+        .upload.disabled { opacity: 0.58; cursor: not-allowed; pointer-events: none; }
+        .upload-main { font-size: 17px; font-weight: 700; color: var(--text); }
+        .upload-sub { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+        .file-input { display: none; }
+        .empty { padding: 0 16px 16px; color: var(--muted); font-size: 13px; }
+
+        /* ===== 素材列表 ===== */
+        .image-list { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px; }
+
+        .image-row {
+            display: grid;
+            grid-template-columns: 54px 42px 230px minmax(0, 1fr) 54px;
+            min-height: 150px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            overflow: hidden;
+            background: var(--panel);
+            box-shadow: var(--shadow-sm);
+            animation: rise 0.3s ease;
+        }
+        @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+        .index-cell { display: grid; place-items: center; border-right: 1px solid var(--line); background: var(--soft); }
+        .index {
+            width: 32px; height: 32px; border-radius: var(--radius-sm);
+            display: inline-flex; align-items: center; justify-content: center;
+            background: var(--accent); color: #fff; font-size: 14px; font-weight: 700;
+        }
+
+        .arrows { display: grid; grid-template-rows: 1fr 1fr; border-right: 1px solid var(--line); background: var(--soft); }
+        .arrow {
+            border: 0; border-bottom: 1px solid var(--line); background: #fff;
+            color: var(--accent-dark); cursor: pointer; font-size: 20px; line-height: 1;
+        }
+        .arrow:last-child { border-bottom: 0; }
+        .arrow:disabled, .remove:disabled { opacity: 0.35; cursor: not-allowed; }
+
+        .thumb { position: relative; background: #eef1ee; border-right: 1px solid var(--line); overflow: hidden; }
+        .thumb img { width: 100%; height: 100%; display: block; object-fit: contain; }
+        .thumb-preview { width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+        .thumb-preview::after {
+            content: "点击查看大图"; position: absolute; left: 50%; bottom: 10px;
+            transform: translate(-50%, 6px);
+            padding: 4px 9px; border-radius: 6px; background: rgba(15, 20, 25, 0.78);
+            color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap;
+            opacity: 0; transition: opacity 0.18s ease, transform 0.18s ease; pointer-events: none;
+        }
+        .thumb-preview:hover::after, .thumb-preview:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
+        .thumb-preview:focus-visible { outline: 3px solid rgba(43, 92, 255, 0.4); outline-offset: -3px; }
+        .thumb-preview img { transition: transform 0.22s ease; }
+        .thumb-preview:hover img { transform: scale(1.03); }
+        .doc-thumb { width: 100%; height: 100%; display: grid; place-items: center; background: #eef1ee; color: var(--accent-dark); font-size: 22px; font-weight: 900; }
+
+        .meta { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 14px 20px; }
+        .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 800; }
+        .hint { color: var(--muted); font-size: 13px; }
+
+        .image-controls { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 8px; margin-top: 3px; }
+        .control-field { display: grid; gap: 4px; min-width: 0; }
+        .control-field label { color: var(--muted); font-size: 12px; font-weight: 800; }
+        .control-field select {
+            width: 100%; min-height: 34px; border: 1px solid var(--line);
+            border-radius: 8px; background: #fff; color: var(--text); padding: 6px 8px;
+        }
+
+        .remove-cell { display: grid; place-items: center; padding: 10px; }
+        .remove {
+            width: 40px; height: 40px; border: 0; border-radius: var(--radius-sm);
+            background: #fdecec; color: var(--danger); cursor: pointer; font-size: 22px; line-height: 1; font-weight: 700;
+            transition: background 0.18s ease, color 0.18s ease;
+        }
+        .remove:hover { background: var(--danger); color: #fff; }
+
+        /* ===== 侧栏 ===== */
+        .side { position: sticky; top: 24px; }
+        .side-body { padding: 16px; }
+
+        .field-label { color: var(--muted); font-size: 13px; font-weight: 800; margin-bottom: 8px; }
+        .block { margin-bottom: 16px; }
+        .block:last-child { margin-bottom: 0; }
+        .workflow-tips { display: grid; gap: 10px; margin-bottom: 16px; }
+        .workflow-tip { display: grid; grid-template-columns: 26px 1fr; gap: 9px; align-items: start; font-size: 12px; color: var(--muted); line-height: 1.5; }
+        .workflow-tip b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; }
+        .workflow-tip strong { display: block; color: var(--text); font-size: 13px; }
+        .action-note { margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.5; text-align: center; }
+
+        .output-row { display: grid; grid-template-columns: minmax(0, 1fr) 88px; gap: 8px; margin-bottom: 14px; }
+        .output-path {
+            min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--soft);
+            padding: 9px 11px; color: var(--muted); font-size: 12px; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap;
+        }
+        input.output-path { width: 100%; outline: none; }
+        input.output-path:focus { border-color: var(--accent); background: var(--panel); }
+        .text-input {
+            width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+            background: var(--panel); color: var(--text); padding: 9px 12px; font-size: 14px; outline: none;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+        .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(43, 92, 255, 0.12); }
+        .text-input:disabled { background: var(--soft); color: var(--muted); cursor: not-allowed; }
+
+        .segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; }
+        .segment {
+            min-height: 38px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel);
+            color: var(--muted); cursor: pointer; font-weight: 700; font-size: 13px;
+            transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+        }
+        .segment:hover { border-color: var(--accent); color: var(--accent); }
+        .segment.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+        .row-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .primary, .secondary {
+            border-radius: var(--radius-sm); font-weight: 700; border: 0; cursor: pointer;
+            transition: background 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+        }
+        .primary {
+            width: 100%; min-height: 48px; background: var(--accent); color: #fff; font-size: 15px;
+            box-shadow: 0 8px 18px rgba(43, 92, 255, 0.22);
+        }
+        .primary:hover:not(:disabled) { background: var(--accent-dark); }
+        .primary:disabled, .secondary:disabled { opacity: 0.52; cursor: not-allowed; }
+        .secondary { min-height: 40px; background: var(--soft); color: var(--text); }
+        .secondary:hover:not(:disabled) { filter: brightness(0.97); }
+        .secondary.danger { background: #fdecec; color: var(--danger); }
+
+        /* ===== 语音 / 音色 管理 ===== */
+        .voice-list { display: grid; gap: 8px; }
+        .voice-item {
+            display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 8px 10px;
+            border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); padding: 10px 12px; cursor: pointer;
+            transition: border-color 0.18s ease, background 0.18s ease;
+        }
+        .voice-item.unavailable { border-color: #d7dee8; background: #f8fafc; }
+        .voice-item.selected { border-color: var(--accent); background: var(--accent-soft); }
+        .voice-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); display: inline-block; }
+        .voice-item.selected .voice-dot { border-color: var(--accent); background: var(--accent); }
+        .voice-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+        .voice-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .voice-tag { display: block; font-size: 11px; color: var(--muted); line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
+        .voice-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .voice-row .voice-engine-select { flex: 1 1 160px; min-height: 40px; border-radius: 9px; border: 1px solid #cdd5dd; background: #fff; color: var(--accent-dark); padding: 0 10px; }
+        .voice-row .secondary { flex: 1 1 140px; }
+        .voice-actions { grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .voice-actions button {
+            border: 1px solid #cbd6e8; background: #fff; color: var(--accent-dark); border-radius: 6px;
+            cursor: pointer; font-size: 12px; font-weight: 700; padding: 5px 9px; white-space: nowrap;
+        }
+        .voice-actions button:hover { border-color: var(--accent); background: var(--accent-soft); }
+        .voice-actions button[data-action="sync"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+        .voice-actions button[data-action="sync"]:hover { background: var(--accent-dark); }
+        .voice-actions button.del { background: #f3e3e1; color: var(--danger); }
+        .voice-error { color: var(--danger); font-size: 12px; margin-top: 6px; min-height: 1px; }
+
+        .voice-create { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+        .voice-create > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 10px 12px; color: var(--accent-dark); font-size: 13px; font-weight: 800; }
+        .voice-create > summary::-webkit-details-marker { display: none; }
+        .voice-create > summary::after { content: "+"; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 17px; line-height: 1; }
+        .voice-create[open] > summary::after { content: "−"; }
+        .voice-create-body { border-top: 1px solid var(--line); padding: 12px; }
+        .voice-guide { display: grid; gap: 7px; margin-bottom: 11px; }
+        .voice-guide-row { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; color: var(--muted); font-size: 11px; line-height: 1.5; }
+        .voice-guide-row b { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-dark); font-size: 10px; }
+        .voice-drop {
+            border: 1.5px dashed #b7c3d4; border-radius: 9px; padding: 14px 12px; text-align: center;
+            background: #fff; color: var(--muted); cursor: pointer; transition: 0.18s ease;
+        }
+        .voice-drop:hover, .voice-drop.dragover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+        .voice-drop strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 3px; }
+        .voice-file-meta { margin-top: 7px; font-size: 12px; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+        .voice-file-meta.ready { color: #347552; font-weight: 700; }
+        .voice-audio-preview { display: none; width: 100%; height: 34px; margin-top: 8px; }
+        .voice-audio-preview.active { display: block; }
+        .voice-train-fields { display: grid; gap: 8px; margin-top: 10px; }
+        .voice-train-fields label > span { display: block; margin-bottom: 4px; color: var(--text); font-size: 12px; font-weight: 700; }
+        .voice-train-fields textarea { min-height: 72px; resize: vertical; padding-top: 9px; line-height: 1.45; font-family: inherit; }
+        .voice-train-consent { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+        .voice-create-status { min-height: 18px; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+        .voice-create-status.error { color: var(--danger); }
+        .voice-create-status.success { color: #347552; font-weight: 700; }
+        .voice-create-submit { min-height: 42px; margin-top: 2px; font-size: 13px; box-shadow: none; }
+
+        .advanced-settings { border: 1px solid var(--line); border-radius: 9px; background: var(--soft); overflow: hidden; }
+        .advanced-settings > summary { cursor: pointer; list-style: none; padding: 10px 12px; color: var(--muted); font-size: 12px; font-weight: 800; }
+        .advanced-settings > summary::-webkit-details-marker { display: none; }
+        .advanced-settings > summary::before { content: "▸ "; }
+        .advanced-settings[open] > summary::before { content: "▾ "; }
+        .advanced-settings-body { display: grid; gap: 14px; padding: 0 12px 12px; }
+        .advanced-settings-body .block { margin: 0; }
+        .speed-control { display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; align-items: center; }
+        .speed-control input { width: 100%; accent-color: var(--accent); }
+        .speed-value { min-width: 48px; text-align: right; color: var(--accent-dark); font-weight: 800; font-variant-numeric: tabular-nums; }
+        .speed-scale { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
+        .quality-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #cfe0ff; border-radius: 9px; background: var(--accent-soft); padding: 10px 12px; }
+        .quality-card strong { color: var(--accent-dark); font-size: 13px; }
+        .quality-card span { color: var(--muted); font-size: 11px; }
+        .manuscript-validation { display: none; margin: 0 16px 14px; padding: 9px 12px; border-radius: 8px; background: #fff5e6; color: #9a5b00; font-size: 12px; }
+        .manuscript-validation.active { display: block; }
+
+        /* ===== 性能 / GPU 折叠区 ===== */
+        details.gpu { margin-top: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); padding: 4px 12px; }
+        details.gpu > summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 800; padding: 8px 0; list-style: none; }
+        details.gpu > summary::-webkit-details-marker { display: none; }
+        details.gpu > summary::before { content: "▸ "; }
+        details.gpu[open] > summary::before { content: "▾ "; }
+        .gpu-grid { display: grid; gap: 6px; padding: 4px 0 12px; font-size: 12px; color: var(--muted); }
+        .gpu-grid .row { display: flex; justify-content: space-between; gap: 10px; }
+        .gpu-grid .row b { color: var(--text); font-weight: 700; text-align: right; }
+        .gpu-on { color: #4f8a6a; font-weight: 800; }
+        .gpu-off { color: var(--danger); font-weight: 800; }
+
+        /* ===== 旁白 / 音色 GPU 加速总开关 ===== */
+        .gpu-voice { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px; }
+        .gpu-voice-title { display: block; font-size: 12px; font-weight: 800; color: var(--muted); margin-bottom: 8px; }
+        .gpu-voice-info { font-size: 12px; color: var(--text); font-weight: 700; margin-bottom: 8px; }
+        .gpu-voice-status { font-size: 12px; margin-bottom: 8px; }
+        .gpu-voice-status.on { color: #4f8a6a; font-weight: 800; }
+        .gpu-voice-status.warn { color: var(--danger); font-weight: 800; }
+        .gpu-voice-status.off { color: var(--muted); }
+
+        .gpu-btn { width: 100%; min-height: 38px; border: 0; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 800; }
+        .gpu-btn.primary { background: var(--accent); color: #fff; }
+        .gpu-btn.primary:hover:not(:disabled) { background: var(--accent-dark); }
+        .gpu-btn.success { background: #e6f1ea; color: #4f8a6a; }
+        .gpu-btn.warn { background: #fdf0ee; color: var(--danger); }
+        .gpu-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .gpu-progress { margin-top: 10px; }
+        .gpu-progress-text { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+        .gpu-voice-hint {
+            margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.55;
+            border: 1px solid var(--line); border-radius: 8px; background: var(--soft); padding: 9px 11px;
+        }
+
+        /* ===== GPU 语音加速确认弹窗 ===== */
+        .gpu-panel {
+            position: fixed; inset: 0; z-index: 1100; display: none; align-items: center; justify-content: center;
+            padding: 24px; background: rgba(15, 20, 25, 0.5); backdrop-filter: blur(3px);
+        }
+        .gpu-panel.open { display: flex; }
+        .gpu-panel-card {
+            width: min(460px, 92vw); background: var(--panel); border-radius: var(--radius);
+            box-shadow: 0 24px 70px rgba(15, 20, 25, 0.18); padding: 22px;
+            display: flex; flex-direction: column; gap: 14px;
+        }
+        .gpu-panel-title { font-size: 16px; font-weight: 800; color: var(--text); }
+        .gpu-panel-text { font-size: 13px; color: var(--muted); line-height: 1.65; }
+        .gpu-panel-actions { display: grid; gap: 8px; }
+        .gpu-panel-actions .secondary { min-height: 40px; border-radius: 9px; }
+
+        /* ===== 进度 ===== */
+        .progress-card { display: none; margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
+        .progress-card.active { display: block; }
+        .wait-line { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .spinner {
+            display: none; width: 22px; height: 22px; border-radius: 50%;
+            border: 3px solid #d7dcd8; border-top-color: var(--accent); animation: spin 0.8s linear infinite;
+        }
+        .spinner.active { display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .wait-title { font-size: 15px; font-weight: 800; }
+        .wait-sub { margin-top: 2px; color: var(--muted); font-size: 12px; }
+        .bar { height: 14px; border-radius: 999px; overflow: hidden; background: #e0e4e1; }
+        .fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.35s ease; }
+        .progress-text { margin-top: 9px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+        .material-progress { width: min(520px, 100%); margin-top: 8px; }
+        .material-progress .bar { height: 12px; }
+        .progress-card.indeterminate .fill, .material-progress.indeterminate .fill {
+            background-image: linear-gradient(110deg, var(--accent) 0 35%, #7f9dff 45% 60%, var(--accent) 70% 100%);
+            background-size: 220% 100%;
+            animation: progress-flow 1.25s linear infinite;
+        }
+        @keyframes progress-flow { to { background-position: -220% 0; } }
+        .material-progress-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 7px; color: var(--muted); font-size: 11px; }
+        .material-live-log { margin-top: 7px; min-height: 18px; color: var(--text); font-size: 12px; line-height: 1.5; }
+
+        .download { display: none; margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
+        .download.active { display: grid; gap: 8px; }
+        .download button {
+            display: inline-flex; width: 100%; min-height: 40px; align-items: center; justify-content: center;
+            background: var(--accent); color: #fff; border: 0; border-radius: 9px; cursor: pointer; font-weight: 800;
+        }
+        .download button.secondary-result { background: var(--soft); color: var(--text); border: 1px solid var(--line); }
+        .download button.secondary-result:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+        /* ===== Step ② 文稿 ===== */
+        .ms-toolbar {
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+            padding: 14px 16px; border-bottom: 1px solid var(--line);
+        }
+        .ms-filename { flex: 1 1 280px; min-width: 200px; }
+        .ms-filename label { display: block; color: var(--muted); font-size: 12px; font-weight: 800; margin-bottom: 5px; }
+        .ms-toolbar .primary, .ms-toolbar .secondary { min-height: 40px; width: auto; padding: 0 16px; }
+        .ms-toolbar .secondary { border-radius: 9px; }
+
+        .ms-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; padding: 16px; }
+        .ms-card {
+            display: grid; grid-template-columns: 150px minmax(0, 1fr);
+            border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #fff;
+            animation: rise 0.3s ease;
+        }
+        .ms-thumb { background: #eef1ee; min-height: 150px; display: grid; place-items: center; }
+        .ms-thumb img { width: 100%; height: 100%; object-fit: contain; }
+        .ms-body { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; min-width: 0; }
+        .ms-head { display: flex; align-items: baseline; gap: 8px; }
+        .ms-page { font-size: 13px; font-weight: 800; color: var(--accent); white-space: nowrap; }
+        .ms-name { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ms-text {
+            width: 100%; min-height: 168px; resize: vertical; border: 1px solid var(--line); border-radius: 8px;
+            background: var(--soft); color: var(--text); padding: 10px 12px; font-size: 14px; line-height: 1.6; outline: none;
+        }
+        .ms-text:focus { border-color: var(--accent); background: #fff; box-shadow: 0 0 0 3px rgba(43, 92, 255, 0.12); }
+        .ms-text.invalid { border-color: var(--warning); background: #fffaf0; }
+        .ms-foot { display: flex; justify-content: flex-end; }
+        .ms-count { font-size: 12px; color: var(--muted); }
+
+        /* ===== Step ③ 生成 ===== */
+        .gen-summary { padding: 16px; display: grid; gap: 10px; }
+        .gen-row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; border-bottom: 1px dashed var(--line); padding-bottom: 8px; }
+        .gen-row:last-child { border-bottom: 0; }
+        .gen-row .k { color: var(--muted); }
+        .gen-row .v { font-weight: 700; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+        .gen-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+
+        /* ===== 日志 ===== */
+        details.logs { margin-top: 14px; }
+        details.logs summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 800; }
+        .log {
+            margin-top: 9px; max-height: 180px; overflow-y: auto; border-radius: 8px;
+            background: #2b302c; color: #d8e0dc; padding: 9px 11px;
+            font-family: Consolas, "Courier New", monospace; font-size: 12px; line-height: 1.55;
+        }
+        .log-entry { border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding: 4px 0; }
+        .log-entry.error { color: #f0b4ac; }
+        .log-entry.success { color: #a6ecc4; }
+
+        body.preview-open { overflow: hidden; }
+        .image-dialog {
+            position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center;
+            padding: 28px; background: rgba(15, 20, 25, 0.74); backdrop-filter: blur(4px);
+        }
+        .image-dialog.open { display: flex; }
+        .image-dialog-box { position: relative; display: flex; flex-direction: column; gap: 10px; width: min(1180px, 94vw); max-height: 92vh; }
+        .image-dialog-close {
+            position: absolute; top: 12px; right: 12px; z-index: 1; width: 42px; height: 42px;
+            border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 8px; background: rgba(15, 20, 25, 0.76);
+            color: #fff; cursor: pointer; font-size: 28px; line-height: 1;
+        }
+        .image-dialog-content { min-height: 0; border-radius: 12px; background: #1b2436; box-shadow: 0 24px 70px rgba(15, 20, 25, 0.4); overflow: hidden; }
+        .image-dialog-content img { display: block; width: 100%; max-height: calc(92vh - 48px); object-fit: contain; }
+        .image-dialog-caption { overflow: hidden; color: #fff; font-size: 13px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+
+        .hidden { display: none !important; }
+
+        @media (max-width: 920px) {
+            body { padding: 12px; }
+            .top, .workspace { display: block; }
+            .state, .side { margin-top: 12px; }
+            .side { position: static; }
+            .stepper { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+            .step-nav { padding: 10px; justify-content: center; }
+            .step-label .s { display: none; }
+            .image-row { grid-template-columns: 48px 38px 120px minmax(0, 1fr) 46px; }
+            .name { font-size: 15px; }
+            .meta { padding: 12px; }
+            .image-controls { grid-template-columns: 1fr; }
+            .ms-list { grid-template-columns: 1fr; }
+            .ms-card { grid-template-columns: 110px minmax(0, 1fr); }
+            .image-dialog { padding: 14px; }
+        }
+
+        /* ===== 主导航（页面切换） ===== */
+        .mainnav{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 16px;margin-bottom:18px;background:rgba(255,255,255,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid var(--line,#e6eaf1);border-radius:var(--radius,12px);box-shadow:var(--shadow-sm,0 1px 2px rgba(15,20,25,.04))}
+        .nav-brand{font-weight:700;font-size:15px;color:var(--text,#1b2436);text-decoration:none;letter-spacing:.02em;white-space:nowrap}
+        .nav-brand:hover{color:var(--accent,#2b5cff)}
+        .nav-links{display:flex;gap:6px;background:var(--soft,#f2f4f8);padding:4px;border-radius:var(--radius-pill,100px)}
+        .nav-link{padding:7px 16px;border-radius:var(--radius-pill,100px);color:var(--muted,#5a6477);text-decoration:none;font-size:14px;font-weight:500;transition:color .15s ease,background .15s ease,box-shadow .15s ease;white-space:nowrap}
+        .nav-link:hover{color:var(--text,#1b2436)}
+        .nav-link.active{background:var(--panel,#fff);color:var(--accent,#2b5cff);box-shadow:var(--shadow-sm,0 1px 2px rgba(15,20,25,.04))}
+        @media (max-width:560px){.mainnav{flex-direction:column;align-items:stretch;gap:10px}.nav-links{justify-content:center}}
+    </style>
+</head>
+<body>
+    <main class="app">
+        <nav class="mainnav" aria-label="主导航">
+            <a class="nav-brand" href="/">音视频工具</a>
+            <div class="nav-links">
+                <a class="nav-link active" href="/" aria-current="page">图片视频生成</a>
+                <a class="nav-link" href="/tts">TTS 语音合成</a>
+            </div>
+        </nav>
+        <header class="top">
+            <h1>素材转讲解视频<small>导入素材，确认逐页文稿，再生成 1080p 配音视频</small></h1>
+            <div class="state" id="statusChip">待上传</div>
+        </header>
+
+        <div class="app-notice" id="appNotice" role="status" aria-live="polite">
+            <span id="appNoticeText"></span>
+            <button id="appNoticeClose" type="button" aria-label="关闭提示">&times;</button>
+        </div>
+
+        <nav class="stepper" aria-label="视频生成步骤">
+            <button class="step-nav active" type="button" data-step="1" aria-current="step">
+                <span class="step-num">1</span>
+                <span class="step-label"><span class="t">导入素材</span><span class="s">上传、拆页并调整顺序</span></span>
+            </button>
+            <button class="step-nav" type="button" data-step="2" disabled>
+                <span class="step-num">2</span>
+                <span class="step-label"><span class="t">确认文稿</span><span class="s">逐页检查和修改讲解词</span></span>
+            </button>
+            <button class="step-nav" type="button" data-step="3" disabled>
+                <span class="step-num">3</span>
+                <span class="step-label"><span class="t">配音生成</span><span class="s">选择音色并输出视频</span></span>
+            </button>
+        </nav>
+
+        <!-- ===================== Step ① 素材 ===================== -->
+        <section class="workspace" id="step1">
+            <section class="panel">
+                <div class="panel-head">
+                    <div class="panel-title">素材</div>
+                    <div class="count"><span id="imageCount">0 个文件</span></div>
+                </div>
+
+                <div class="upload" id="uploadArea" role="button" tabindex="0" aria-controls="fileInput">
+                    <div>
+                        <div class="upload-main">拖拽素材到这里</div>
+                        <div class="upload-sub">支持图片、PDF、PPT、PPTX、Word，AI 自动每 10 张分批处理</div>
+                    </div>
+                    <input type="file" class="file-input" id="fileInput" multiple accept="image/*,.pdf,.ppt,.pptx,.doc,.docx,application/pdf">
+                </div>
+
+                <div class="empty" id="emptyState">拖拽图片开始，或点击上方区域选择文件。</div>
+                <div class="image-list" id="imagePreview"></div>
+            </section>
+
+            <aside class="panel side">
+                <div class="panel-head">
+                    <div class="panel-heading">
+                        <div class="panel-title">开始处理</div>
+                        <div class="panel-subtitle">这一步只需确认素材内容与顺序</div>
+                    </div>
+                    <div class="count" id="estimatedTime">等待素材</div>
+                </div>
+
+                <div class="side-body">
+                    <div class="workflow-tips">
+                        <div class="workflow-tip"><b>1</b><span><strong>添加素材</strong>支持图片、PDF、PPT 和 Word，可一次选择多个文件。</span></div>
+                        <div class="workflow-tip"><b>2</b><span><strong>检查顺序</strong>文档会自动逐页拆分；需要精细调整时可先拆页。</span></div>
+                        <div class="workflow-tip"><b>3</b><span><strong>生成文稿</strong>AI 会为每个画面生成一段讲解词，之后仍可逐页修改。</span></div>
+                    </div>
+                    <button class="primary" id="genManuscriptBtn" disabled>生成并编辑文稿</button>
+                    <button class="secondary" id="splitBtn" disabled style="width:100%;margin-top:8px">先拆分页并调整</button>
+                    <div class="action-note">不需要调整画面时，直接点击“生成并编辑文稿”即可。</div>
+                    <div id="msLoading" style="display:none; margin-top:12px">
+                        <div class="wait-title" id="msWaitTitle">正在处理素材</div>
+                        <div class="material-progress" id="materialProgress">
+                            <div class="bar"><div class="fill" id="msProgressFill"></div></div>
+                            <div class="progress-text" id="msSub">0% · 等待上传</div>
+                            <div class="material-progress-meta"><span id="msElapsed">已用时 0 秒</span><span>可以继续停留在此页面</span></div>
+                            <div class="material-live-log" id="msLiveLog" role="status" aria-live="polite">等待开始</div>
+                        </div>
+                    </div>
+                    <button class="secondary danger" id="clearBtn" disabled style="width:100%;margin-top:12px">清空当前素材</button>
+                </div>
+            </aside>
+        </section>
+
+        <!-- ===================== Step ② 文稿 ===================== -->
+        <section class="panel hidden" id="step2">
+            <div class="panel-head">
+                <div class="panel-heading">
+                    <div class="panel-title">逐页确认讲解文稿</div>
+                    <div class="panel-subtitle">重点检查人名、数字和专业术语；所有页面都有文稿后才能继续</div>
+                </div>
+                <div class="count" id="manuscriptHealth">等待文稿</div>
+            </div>
+            <div class="ms-toolbar">
+                <div class="ms-filename">
+                    <label for="msFilename">视频名称</label>
+                    <input class="text-input" id="msFilename" type="text" maxlength="80" placeholder="不填则自动命名">
+                </div>
+                <button class="secondary" id="backToMaterialsBtn" type="button">返回素材</button>
+                <button class="secondary" id="msDownloadBtn" type="button">导出文稿</button>
+                <button class="secondary" id="msRegenerateBtn" type="button">重新生成全部</button>
+                <button class="primary" id="msApplyBtn" type="button">确认文稿，下一步</button>
+            </div>
+            <div class="manuscript-validation" id="manuscriptValidation"></div>
+            <div class="empty hidden" id="msEmpty"></div>
+            <div class="ms-list" id="manuscriptList"></div>
+        </section>
+
+        <!-- ===================== Step ③ 生成 ===================== -->
+        <section class="workspace hidden" id="step3">
+            <section class="panel">
+                <div class="panel-head">
+                    <div class="panel-heading">
+                        <div class="panel-title">生成确认</div>
+                        <div class="panel-subtitle">确认信息后开始生成，过程中可以查看实时进度</div>
+                    </div>
+                    <div class="count" id="genStatusText">准备中</div>
+                </div>
+                <div class="gen-summary">
+                    <div class="gen-row"><span class="k">输出名称</span><span class="v" id="genName">—</span></div>
+                    <div class="gen-row"><span class="k">视频画质</span><span class="v">1080p 高清</span></div>
+                    <div class="gen-row"><span class="k">字幕模式</span><span class="v" id="genSubtitle">—</span></div>
+                    <div class="gen-row"><span class="k">所用音色</span><span class="v" id="genVoice">—</span></div>
+                    <div class="gen-row"><span class="k">文稿页数</span><span class="v" id="genPages">—</span></div>
+                    <div class="gen-row"><span class="k">预计耗时</span><span class="v" id="genEstimate">估算中...</span></div>
+                    <div class="gen-row"><span class="k">保存目录</span><span class="v" id="genOutputFolder">—</span></div>
+
+                    <div class="progress-card" id="progressSection">
+                        <div class="wait-line">
+                            <span class="spinner" id="spinner"></span>
+                            <div>
+                                <div class="wait-title" id="waitTitle">正在处理</div>
+                                <div class="wait-sub" id="elapsedText">已用时 0 秒</div>
+                            </div>
+                        </div>
+                        <div class="bar"><div class="fill" id="progressFill"></div></div>
+                        <div class="progress-text" id="progressText">准备中...</div>
+                    </div>
+
+                    <div class="download" id="downloadSection"></div>
+
+                    <details class="logs">
+                        <summary>运行日志</summary>
+                        <div class="log" id="logBox">
+                            <div class="log-entry">系统就绪。</div>
+                        </div>
+                    </details>
+                </div>
+            </section>
+            <aside class="panel side">
+                <div class="panel-head">
+                    <div class="panel-heading">
+                        <div class="panel-title">配音与输出</div>
+                        <div class="panel-subtitle">设置完成后生成 1080p 高清视频</div>
+                    </div>
+                </div>
+                <div class="side-body">
+                    <div class="quality-card block"><strong>1080p 高清</strong><span>已固定，无需选择</span></div>
+
+                    <div class="block">
+                        <div class="field-label">字幕</div>
+                        <div class="segmented" role="group" aria-label="字幕模式">
+                            <button class="segment active" type="button" data-mode="on" aria-pressed="true">显示字幕</button>
+                            <button class="segment" type="button" data-mode="off" aria-pressed="false">不显示</button>
+                        </div>
+                    </div>
+
+                    <div class="block">
+                        <div class="field-label">整体语速</div>
+                        <div class="speed-control">
+                            <input type="range" id="speedSlider" min="0.70" max="1.50" step="0.05" value="1.00" aria-label="整体语速">
+                            <span class="speed-value" id="speedValue">1.00×</span>
+                            <div class="speed-scale"><span>慢</span><span>自然</span><span>快</span></div>
+                        </div>
+                    </div>
+
+                    <div class="block">
+                        <div class="field-label">语音 / 音色</div>
+                        <div class="voice-list" id="voiceList" role="radiogroup" aria-label="选择配音音色"></div>
+                        <div class="voice-error" id="voiceError" role="alert"></div>
+                        <details class="voice-create" id="voiceCreatePanel">
+                            <summary>新增克隆音色</summary>
+                            <div class="voice-create-body">
+                                <div class="voice-guide" aria-label="录音要求">
+                                    <div class="voice-guide-row"><b>1</b><span>准备一段<strong>单人、无音乐、无回声</strong>的清晰录音。</span></div>
+                                    <div class="voice-guide-row"><b>2</b><span>支持 WAV / MP3，3–60 秒，文件不超过 10MB。</span></div>
+                                    <div class="voice-guide-row"><b>3</b><span>逐字稿可留空，系统会先用本地语音识别自动填写，再创建音色。</span></div>
+                                </div>
+                                <form id="voiceCreateForm">
+                                    <input id="voiceFileInput" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" hidden>
+                                    <div class="voice-drop" id="voiceDrop" role="button" tabindex="0" aria-controls="voiceFileInput">
+                                        <strong>选择或拖入参考音频</strong>
+                                        <span>建议自然说话，避免多人声和背景音乐</span>
+                                    </div>
+                                    <div class="voice-file-meta" id="voiceFileMeta">尚未选择文件</div>
+                                    <audio class="voice-audio-preview" id="voiceAudioPreview" controls preload="metadata"></audio>
+                                    <div class="voice-train-fields">
+                                        <label><span>音色名称</span><input class="text-input" id="voiceNameInput" maxlength="30" placeholder="例如：产品经理小林" autocomplete="off"></label>
+                                        <label><span>录音逐字稿（选填）</span><textarea class="text-input" id="voiceRefTextInput" maxlength="500" placeholder="留空将自动识别；手动填写通常更准确"></textarea></label>
+                                        <label class="voice-train-consent"><input id="voiceConsentInput" type="checkbox"><span>我确认已获得该声音的使用授权，并同意仅在本机处理这段录音。</span></label>
+                                        <button class="primary voice-create-submit" id="voiceCreateBtn" type="submit">创建克隆音色</button>
+                                    </div>
+                                    <div class="voice-create-status" id="voiceCreateStatus" role="status" aria-live="polite"></div>
+                                </form>
+                            </div>
+                        </details>
+                    </div>
+
+                    <div class="block">
+                        <div class="field-label">保存位置</div>
+                        <div class="output-row">
+                            <input class="output-path" id="outputPath" type="text" value="读取中..." aria-label="输出目录">
+                            <button class="secondary" id="chooseOutputBtn" type="button">浏览</button>
+                        </div>
+                        <div class="hint">生成完成后可直接打开视频或所在文件夹。</div>
+                    </div>
+
+                    <details class="advanced-settings block">
+                        <summary>高级设置与运行环境</summary>
+                        <div class="advanced-settings-body">
+                            <div class="block">
+                                <div class="field-label">配音缓存</div>
+                                <div class="row-actions"><span id="ttsCacheStats" class="hint">加载中...</span><button class="secondary" id="ttsCacheClearBtn" type="button">清理</button></div>
+                            </div>
+                            <details class="gpu" id="gpuDetails">
+                                <summary>性能 / GPU</summary>
+                                <div class="gpu-grid" id="gpuGrid"><div class="row"><span>检测中...</span></div></div>
+                                <div class="gpu-voice"><span class="gpu-voice-title">本地克隆语音</span><div id="gpuVoiceBody"><div class="gpu-voice-status off">检测中…</div></div></div>
+                            </details>
+                            <div class="gpu-voice-hint hidden" id="gpuVoiceHint">选择 CosyVoice3 音色后，将在本机完成配音推理。</div>
+                        </div>
+                    </details>
+
+                    <button class="primary" id="startBtn">开始生成 1080p 视频</button>
+                    <div class="action-note" id="generationEstimateHint">正在根据画面、文稿和音色估算耗时。</div>
+                    <div class="gen-actions">
+                        <button class="secondary" id="backToManuscriptBtn" type="button">修改文稿</button>
+                        <button class="secondary" id="backToMaterialsFromGenerateBtn" type="button">调整素材</button>
+                    </div>
+                    <button class="secondary danger hidden" id="cancelBtn" disabled style="width:100%;margin-top:8px">取消生成</button>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <div class="image-dialog" id="imageDialog" role="dialog" aria-modal="true" aria-labelledby="imageDialogCaption">
+        <div class="image-dialog-box">
+            <button class="image-dialog-close" id="imageDialogClose" type="button" title="关闭大图" aria-label="关闭大图">&times;</button>
+            <div class="image-dialog-content">
+                <img id="imageDialogPicture" src="" alt="">
+            </div>
+            <div class="image-dialog-caption" id="imageDialogCaption"></div>
+        </div>
+    </div>
+
+    <script>
+        let API_BASE = resolveApiBase();
+
+        /* ===== 元素引用 ===== */
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const emptyState = document.getElementById('emptyState');
+        const genManuscriptBtn = document.getElementById('genManuscriptBtn');
+        const splitBtn = document.getElementById('splitBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const startBtn = document.getElementById('startBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const progressSection = document.getElementById('progressSection');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const downloadSection = document.getElementById('downloadSection');
+        const imageCount = document.getElementById('imageCount');
+        const estimatedTime = document.getElementById('estimatedTime');
+        const genEstimate = document.getElementById('genEstimate');
+        const generationEstimateHint = document.getElementById('generationEstimateHint');
+        const statusChip = document.getElementById('statusChip');
+        const logBox = document.getElementById('logBox');
+        const spinner = document.getElementById('spinner');
+        const waitTitle = document.getElementById('waitTitle');
+        const elapsedText = document.getElementById('elapsedText');
+        const segmentButtons = Array.from(document.querySelectorAll('.segment'));
+        const outputPath = document.getElementById('outputPath');
+        const chooseOutputBtn = document.getElementById('chooseOutputBtn');
+        const imageDialog = document.getElementById('imageDialog');
+        const imageDialogPicture = document.getElementById('imageDialogPicture');
+        const imageDialogCaption = document.getElementById('imageDialogCaption');
+        const imageDialogClose = document.getElementById('imageDialogClose');
+        const appNotice = document.getElementById('appNotice');
+        const appNoticeText = document.getElementById('appNoticeText');
+        const appNoticeClose = document.getElementById('appNoticeClose');
+        const stepNavButtons = Array.from(document.querySelectorAll('.step-nav'));
+
+        // 步骤 / 文稿 相关
+        const stepEls = { 1: document.getElementById('step1'), 2: document.getElementById('step2'), 3: document.getElementById('step3') };
+        const msFilename = document.getElementById('msFilename');
+        const manuscriptList = document.getElementById('manuscriptList');
+        const msLoading = document.getElementById('msLoading');
+        const msWaitTitle = document.getElementById('msWaitTitle');
+        const msProgressFill = document.getElementById('msProgressFill');
+        const msSub = document.getElementById('msSub');
+        const materialProgress = document.getElementById('materialProgress');
+        const msElapsed = document.getElementById('msElapsed');
+        const msLiveLog = document.getElementById('msLiveLog');
+        const manuscriptHealth = document.getElementById('manuscriptHealth');
+        const manuscriptValidation = document.getElementById('manuscriptValidation');
+        const msApplyBtn = document.getElementById('msApplyBtn');
+        const msRegenerateBtn = document.getElementById('msRegenerateBtn');
+
+        // 语音相关
+        const voiceList = document.getElementById('voiceList');
+        const voiceError = document.getElementById('voiceError');
+        const voiceCreateForm = document.getElementById('voiceCreateForm');
+        const voiceFileInput = document.getElementById('voiceFileInput');
+        const voiceDrop = document.getElementById('voiceDrop');
+        const voiceFileMeta = document.getElementById('voiceFileMeta');
+        const voiceAudioPreview = document.getElementById('voiceAudioPreview');
+        const voiceNameInput = document.getElementById('voiceNameInput');
+        const voiceRefTextInput = document.getElementById('voiceRefTextInput');
+        const voiceConsentInput = document.getElementById('voiceConsentInput');
+        const voiceCreateBtn = document.getElementById('voiceCreateBtn');
+        const voiceCreateStatus = document.getElementById('voiceCreateStatus');
+
+        /* ===== 常量 ===== */
+        const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+        const DOCUMENT_EXTENSIONS = ['pdf', 'ppt', 'pptx', 'doc', 'docx'];
+        const SUPPORTED_EXTENSIONS = [...IMAGE_EXTENSIONS, ...DOCUMENT_EXTENSIONS];
+        const TRANSITIONS = [
+            ['none', '无'], ['fade', '淡入'], ['slide_left', '左滑'],
+            ['slide_right', '右滑'], ['slide_up', '上滑'], ['zoom', '轻微放大']
+        ];
+
+        /* ===== 状态 ===== */
+        let selectedFiles = [];
+        let uploadedFilePaths = [];
+        let preparedImages = [];
+        let isPrepared = false;
+        let currentTaskId = null;
+        let currentCompletedTaskId = null;
+        let statusCheckInterval = null;
+        let elapsedInterval = null;
+        let startedAt = null;
+        let isRunning = false;
+        let displayedProgress = 0;
+        let subtitleMode = 'on';
+        let screenCount = 0;
+        let clientHeartbeatInterval = null;
+        let previewTrigger = null;
+        let selectedVoiceId = 'default';
+        let currentVoices = [];
+        let selectedVoiceFile = null;
+        let selectedVoiceFileUrl = '';
+        let manuscriptBusy = false;          // 生成文稿中（Step 1 loading）
+        let manuscriptDirty = false;
+        let currentStep = 1;
+        let manuscriptData = [];             // Step ② 文稿数组：{page, file, name, preview_url, previewUrl, text}
+        let gpuConfig = null;
+        let lastSavedOutputPath = '';
+        let completedOutputs = [];
+        let persistTimer = null;
+        let noticeTimer = null;
+        let estimateTimer = null;
+        let estimatedGenerationSeconds = 0;
+        let serverLogKeys = new Set();
+        let manuscriptStartedAt = 0;
+        let manuscriptElapsedTimer = null;
+        let manuscriptLogKeys = new Set();
+        const PROJECT_SESSION_KEY = 'toolbax_current_project_v1';
+        const STEP_PATHS = { 1: '/materials', 2: '/manuscript', 3: '/generate' };
+
+        appNoticeClose.addEventListener('click', () => {
+            clearTimeout(noticeTimer);
+            appNotice.className = 'app-notice';
+        });
+
+        /* ===== 客户端心跳 ===== */
+        function notifyClientAlive() {
+            fetch(`${API_BASE}/client-alive`, { method: 'POST', keepalive: true }).catch(() => {});
+        }
+        function notifyClientClose() {
+            const url = `${API_BASE}/client-close`;
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(url, new Blob([], { type: 'application/octet-stream' }));
+                return;
+            }
+            fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+        }
+        notifyClientAlive();
+        clientHeartbeatInterval = setInterval(notifyClientAlive, 1500);
+        window.addEventListener('pagehide', notifyClientClose);
+
+        /* ===== 步骤导航 ===== */
+        function goToStep(n, options = {}) {
+            if (!canGoToStep(n)) return;
+            currentStep = n;
+            [1, 2, 3].forEach((i) => {
+                if (stepEls[i]) stepEls[i].classList.toggle('hidden', i !== n);
+            });
+            stepNavButtons.forEach((button) => {
+                const step = Number(button.dataset.step);
+                button.classList.toggle('active', step === n);
+                button.classList.toggle('done', step < n);
+                button.disabled = isRunning || (step === 2 && !manuscriptData.length) || (step === 3 && !isManuscriptComplete());
+                if (step === n) button.setAttribute('aria-current', 'step');
+                else button.removeAttribute('aria-current');
+            });
+            if (n === 2) renderManuscript();
+            if (n === 3) { updateGenerateSummary(); refreshEstimate(); }
+            if (!currentTaskId) {
+                statusChip.textContent = n === 1
+                    ? (isPrepared ? '待确认' : (selectedFiles.length ? '已选择' : '待上传'))
+                    : (n === 2 ? '编辑文稿' : '待生成');
+            }
+            if (options.updateUrl !== false) {
+                const path = STEP_PATHS[n] || STEP_PATHS[1];
+                const method = options.replace ? 'replaceState' : 'pushState';
+                if (window.location.pathname !== path) history[method]({ step: n }, '', path);
+            }
+            scheduleProjectPersist();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        stepNavButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const target = Number(button.dataset.step);
+                if (!isRunning && canGoToStep(target)) goToStep(target);
+            });
+        });
+
+        function stepFromPath() {
+            const entry = Object.entries(STEP_PATHS).find(([, path]) => path === window.location.pathname);
+            return entry ? Number(entry[0]) : 1;
+        }
+
+        function serializablePreparedImages() {
+            return preparedImages.map((item) => ({
+                file: item.file, name: item.name, ext: item.ext,
+                importance: item.importance || 'normal', transition: item.transition || 'fade'
+            }));
+        }
+
+        function scheduleProjectPersist() {
+            clearTimeout(persistTimer);
+            persistTimer = setTimeout(persistProjectSession, 120);
+        }
+
+        function persistProjectSession() {
+            if (!isPrepared || !preparedImages.length) return;
+            const state = {
+                version: 1,
+                step: currentStep,
+                preparedImages: serializablePreparedImages(),
+                manuscriptData: manuscriptData.map((m) => ({
+                    page: m.page, file: m.file, name: m.name, text: m.text || ''
+                })),
+                screenCount,
+                msFilename: msFilename.value,
+                outputName: msFilename.value,
+                selectedVoiceId,
+                subtitleMode,
+                currentTaskId: isRunning ? currentTaskId : null,
+                startedAt: isRunning ? startedAt : null,
+                currentCompletedTaskId,
+                completedOutputs,
+            };
+            try { localStorage.setItem(PROJECT_SESSION_KEY, JSON.stringify(state)); } catch (e) {}
+        }
+
+        function previewUrlForFile(file) {
+            const base = API_BASE.replace(/\/api$/, '');
+            const name = String(file || '').split(/[\\/]/).pop();
+            return `${base}/api/preview/${encodeURIComponent(name)}`;
+        }
+
+        function restoreProjectSession() {
+            let state = null;
+            try { state = JSON.parse(localStorage.getItem(PROJECT_SESSION_KEY) || 'null'); } catch (e) {}
+            if (!state || !Array.isArray(state.preparedImages) || !state.preparedImages.length) {
+                goToStep(1, { replace: true });
+                return;
+            }
+            preparedImages = state.preparedImages.map((item, index) => ({
+                ...item,
+                previewUrl: previewUrlForFile(item.file),
+                kind: 'image',
+                transition: index === state.preparedImages.length - 1 ? 'none' : (item.transition || 'fade')
+            }));
+            uploadedFilePaths = preparedImages.map((item) => item.file);
+            isPrepared = true;
+            screenCount = Number(state.screenCount) || preparedImages.length;
+            manuscriptData = (state.manuscriptData || []).map((m) => ({
+                ...m,
+                preview_url: `/api/preview/${encodeURIComponent(String(m.file || '').split(/[\\/]/).pop())}`,
+                previewUrl: previewUrlForFile(m.file)
+            }));
+            msFilename.value = state.msFilename || state.outputName || '';
+            selectedVoiceId = state.selectedVoiceId || 'default';
+            subtitleMode = state.subtitleMode === 'off' ? 'off' : 'on';
+            segmentButtons.forEach((button) => {
+                const active = button.dataset.mode === subtitleMode;
+                button.classList.toggle('active', active);
+                button.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+            completedOutputs = Array.isArray(state.completedOutputs) ? state.completedOutputs : [];
+            currentCompletedTaskId = state.currentCompletedTaskId || null;
+            updatePreview();
+            updateControls();
+            const requestedStep = stepFromPath() || Number(state.step) || 1;
+            const safeStep = requestedStep > 1 && !manuscriptData.length
+                ? 1
+                : (requestedStep === 3 && !isManuscriptComplete() ? 2 : requestedStep);
+            goToStep(safeStep, { replace: true });
+            if (state.currentTaskId) resumeGeneration(state.currentTaskId, state.startedAt);
+            else if (completedOutputs.length && safeStep === 3) restoreCompletedGeneration();
+        }
+
+        window.addEventListener('popstate', () => {
+            const requested = stepFromPath();
+            if (canGoToStep(requested)) goToStep(requested, { updateUrl: false });
+        });
+
+        function canGoToStep(n) {
+            if (n <= currentStep) return true;                 // 允许回退
+            if (n === 2 && manuscriptData.length) return true; // 文稿已生成可前进
+            if (n === 3 && isManuscriptComplete()) return true; // 生成前需要每页文稿完整
+            return false;
+        }
+
+
+        /* ===== 字幕模式 ===== */
+        segmentButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                if (isRunning) return;
+                subtitleMode = button.dataset.mode;
+                segmentButtons.forEach((item) => {
+                    item.classList.toggle('active', item === button);
+                    item.setAttribute('aria-pressed', item === button ? 'true' : 'false');
+                });
+                refreshEstimate();
+                if (currentStep === 3) updateGenerateSummary();
+                scheduleProjectPersist();
+            });
+        });
+
+        async function refreshCacheStats() {
+            try {
+                const res = await apiFetch('/tts-cache/stats');
+                const data = await res.json();
+                if (data.success) {
+                    const s = data.data;
+                    document.getElementById('ttsCacheStats').textContent =
+                        `缓存: ${s.total_entries} 条, ${s.total_size_mb} MB`;
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        document.getElementById('ttsCacheClearBtn').addEventListener('click', async () => {
+            if (!confirm('确定清理所有配音缓存？')) return;
+            try {
+                const res = await apiFetch('/tts-cache/clear', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showNotice(`已清理 ${data.data.cleared} 条配音缓存。`, 'success');
+                }
+                refreshCacheStats();
+            } catch (e) {
+                showNotice(`清理缓存失败：${formatFetchError(e)}`, 'error');
+            }
+        });
+
+        // 初始加载状态
+        refreshCacheStats();
+
+        /* ===== 初始化 ===== */
+        detectHardware();
+        loadOutputFolder();
+        loadVoices();
+        loadConfig();
+        loadGpuVoiceStatus();
+        restoreProjectSession();
+
+        chooseOutputBtn.addEventListener('click', async () => {
+            if (isRunning) return;
+            try {
+                const response = await apiFetch('/select-output-folder', { method: 'POST' });
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '选择输出目录失败');
+                outputPath.value = result.path;
+                outputPath.title = result.path;
+                lastSavedOutputPath = result.path;
+                if (currentStep === 3) updateGenerateSummary();
+                addLog(result.path ? `输出目录已改为：${result.path}` : '未更改输出目录。', 'success');
+            } catch (error) {
+                addLog(`输出目录设置失败：${formatFetchError(error)}`, 'error');
+            }
+        });
+
+        async function saveTypedOutputFolder() {
+            if (isRunning) return;
+            const path = outputPath.value.trim();
+            if (path && path === lastSavedOutputPath) return path;
+            try {
+                const response = await apiFetch('/output-folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '保存输出目录失败');
+                outputPath.value = result.path;
+                outputPath.title = result.path;
+                lastSavedOutputPath = result.path;
+                if (currentStep === 3) updateGenerateSummary();
+                addLog(`输出目录已保存：${result.path}`, 'success');
+                return result.path;
+            } catch (error) {
+                addLog(`输出目录设置失败：${formatFetchError(error)}`, 'error');
+                throw error;
+            }
+        }
+        outputPath.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') { event.preventDefault(); saveTypedOutputFolder().catch(() => {}); }
+        });
+        outputPath.addEventListener('change', () => { saveTypedOutputFolder().catch(() => {}); });
+        msFilename.addEventListener('input', scheduleProjectPersist);
+
+        /* ===== 上传素材 ===== */
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); }
+        });
+        uploadArea.addEventListener('dragover', (event) => { event.preventDefault(); uploadArea.classList.add('dragover'); });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+        uploadArea.addEventListener('drop', (event) => {
+            event.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFiles(event.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', (event) => { handleFiles(event.target.files); fileInput.value = ''; });
+
+        imageDialogClose.addEventListener('click', closeImagePreview);
+        imageDialog.addEventListener('click', (event) => { if (event.target === imageDialog) closeImagePreview(); });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && imageDialog.classList.contains('open')) closeImagePreview();
+        });
+
+        function handleFiles(files) {
+            const incomingFiles = Array.from(files);
+            if (!incomingFiles.length) return;
+            if ((isPrepared || manuscriptData.length) && !window.confirm('添加新素材会清除已经拆分的画面和文稿，确定继续吗？')) return;
+            let addedCount = 0;
+            incomingFiles.forEach((file) => {
+                const ext = getExtension(file.name);
+                if (!SUPPORTED_EXTENSIONS.includes(ext)) { addLog(`跳过不支持的文件：${file.name}`, 'error'); return; }
+                const duplicated = selectedFiles.some((existing) => (
+                    existing.name === file.name && existing.size === file.size && existing.lastModified === file.lastModified
+                ));
+                if (duplicated) { addLog(`已跳过重复素材：${file.name}`); return; }
+                if (IMAGE_EXTENSIONS.includes(ext)) file.previewUrl = URL.createObjectURL(file);
+                file.kind = IMAGE_EXTENSIONS.includes(ext) ? 'image' : 'document';
+                file.ext = ext;
+                selectedFiles.push(file);
+                addedCount += 1;
+            });
+            if (!addedCount) return;
+            clearPreparedImages();
+            screenCount = 0;
+            manuscriptData = [];                 // 素材改变，旧文稿作废
+            manuscriptDirty = false;
+            updatePreview();
+            updateControls();
+            inspectSelectedFiles();
+            addLog(`已添加 ${addedCount} 个素材。`);
+        }
+
+        function updatePreview() {
+            const items = isPrepared ? preparedImages : selectedFiles;
+            emptyState.style.display = items.length ? 'none' : 'block';
+            emptyState.textContent = isPrepared
+                ? '已拆分为图片，可调整每张图片的参数后开始生成。'
+                : '拖拽图片开始，或点击上方区域选择文件。';
+            imagePreview.innerHTML = items.map((file, index) => `
+                <div class="image-row">
+                    <div class="index-cell"><span class="index">${index + 1}</span></div>
+                    <div class="arrows">
+                        <button class="arrow" type="button" title="上移" onclick="moveImage(${index}, -1)" ${index === 0 || isRunning ? 'disabled' : ''}>↑</button>
+                        <button class="arrow" type="button" title="下移" onclick="moveImage(${index}, 1)" ${index === items.length - 1 || isRunning ? 'disabled' : ''}>↓</button>
+                    </div>
+                    <div class="thumb">${renderThumb(file, index)}</div>
+                    <div class="meta">
+                        <div class="name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+                        <div class="hint">${isPrepared
+                            ? `第 ${index + 1} 张画面`
+                            : (file.pageCount > 1
+                                ? `${(file.ext || '文档').toUpperCase()} · 已识别 ${file.pageCount} 页，生成文稿时逐页拆分`
+                                : `第 ${index + 1} 个文件`)}</div>
+                        ${isPrepared ? renderImageControls(file, index, items.length) : ''}
+                    </div>
+                    <div class="remove-cell">
+                        <button class="remove" type="button" title="删除" onclick="removeImage(${index})" ${isRunning ? 'disabled' : ''}>&times;</button>
+                    </div>
+                </div>
+            `).join('');
+
+            imageCount.textContent = isPrepared
+                ? `${preparedImages.length} 张画面`
+                : (screenCount
+                    ? `${selectedFiles.length} 个文件 · ${screenCount} 张画面`
+                    : `${selectedFiles.length} 个文件`);
+            if (!isRunning) statusChip.textContent = isPrepared ? '待确认' : (selectedFiles.length ? '已选择' : '待上传');
+        }
+
+        function renderThumb(file, index) {
+            if (file.previewUrl) {
+                return `
+                    <button class="thumb-preview" type="button" title="点击查看大图" aria-label="查看 ${escapeAttribute(file.name)} 的大图" onclick="openImagePreview(${index}, this)">
+                        <img src="${escapeAttribute(file.previewUrl)}" alt="${escapeAttribute(file.name)}">
+                    </button>`;
+            }
+            return `<div class="doc-thumb">${escapeHtml((file.ext || 'DOC').toUpperCase())}</div>`;
+        }
+
+        function openImagePreview(index, trigger) {
+            const items = isPrepared ? preparedImages : selectedFiles;
+            const file = items[index];
+            if (!file || !file.previewUrl) return;
+            previewTrigger = trigger || document.activeElement;
+            imageDialogPicture.src = file.previewUrl;
+            imageDialogPicture.alt = file.name || `第 ${index + 1} 张图片`;
+            imageDialogCaption.textContent = file.name || `第 ${index + 1} 张图片`;
+            imageDialog.classList.add('open');
+            document.body.classList.add('preview-open');
+            imageDialogClose.focus();
+        }
+
+        function closeImagePreview() {
+            if (!imageDialog.classList.contains('open')) return;
+            imageDialog.classList.remove('open');
+            document.body.classList.remove('preview-open');
+            imageDialogPicture.src = '';
+            if (previewTrigger && document.contains(previewTrigger)) previewTrigger.focus();
+            previewTrigger = null;
+        }
+
+        function renderImageControls(file, index, total) {
+            return `
+                <div class="image-controls">
+                    <div class="control-field">
+                        <label for="importance-${index}">重要程度</label>
+                        <select id="importance-${index}" onchange="updateImageOption(${index}, 'importance', this.value)" ${isRunning ? 'disabled' : ''}>
+                            ${renderOptions([['low', '低'], ['normal', '普通'], ['high', '高'], ['key', '关键']], file.importance || 'normal')}
+                        </select>
+                    </div>
+                    <div class="control-field">
+                        <label for="transition-${index}">转场</label>
+                        <select id="transition-${index}" onchange="updateImageOption(${index}, 'transition', this.value)" ${index === total - 1 || isRunning ? 'disabled' : ''}>
+                            ${renderOptions(TRANSITIONS, index === total - 1 ? 'none' : (file.transition || 'fade'))}
+                        </select>
+                    </div>
+                </div>`;
+        }
+
+        function renderOptions(options, selectedValue) {
+            return options.map(([value, label]) => (
+                `<option value="${escapeAttribute(value)}" ${value === selectedValue ? 'selected' : ''}>${escapeHtml(label)}</option>`
+            )).join('');
+        }
+
+        function getExtension(name) {
+            const parts = String(name || '').toLowerCase().split('.');
+            return parts.length > 1 ? parts.pop() : '';
+        }
+
+        function clearPreparedImages() {
+            preparedImages = [];
+            uploadedFilePaths = [];
+            isPrepared = false;
+        }
+
+        /* ===== 硬件 / 估算 ===== */
+        async function detectHardware() {
+            try {
+                const response = await apiFetch('/hardware');
+                if (!response.ok) throw new Error(await readError(response) || '硬件检测失败');
+                await response.json();   // 仅用于预热测速，结果在估算中使用
+                refreshEstimate();
+            } catch (error) {
+                addLog(`硬件检测失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        async function loadOutputFolder() {
+            try {
+                const response = await apiFetch('/output-folder');
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '读取输出目录失败');
+                outputPath.value = result.path;
+                outputPath.title = result.path;
+                lastSavedOutputPath = result.path;
+            } catch (error) {
+                outputPath.value = '读取失败';
+                addLog(`读取输出目录失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        async function inspectSelectedFiles() {
+            if (!selectedFiles.length) { screenCount = 0; updatePreview(); refreshEstimate(); return; }
+            try {
+                estimatedTime.textContent = '估算中...';
+                const formData = new FormData();
+                selectedFiles.forEach((file) => formData.append('files', file));
+                const response = await apiFetch('/inspect', { method: 'POST', body: formData });
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '素材识别失败');
+                screenCount = result.count || selectedFiles.length;
+                (result.items || []).forEach((item, index) => {
+                    if (selectedFiles[index]) selectedFiles[index].pageCount = item.count;
+                });
+                updatePreview();
+                refreshEstimate();
+                addLog(`素材识别完成：${selectedFiles.length} 个文件，将逐页拆分为 ${screenCount} 张画面。`, 'success');
+            } catch (error) {
+                screenCount = selectedFiles.length;
+                updatePreview();
+                refreshEstimate();
+                addLog(`素材画面数识别失败，使用粗略估算：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        async function refreshEstimate() {
+            if (isRunning) return;
+            const imageTotal = manuscriptData.length || screenCount || selectedFiles.length;
+            if (!imageTotal) {
+                estimatedTime.textContent = '等待素材';
+                genEstimate.textContent = '等待文稿';
+                generationEstimateHint.textContent = '完成文稿后将显示预计生成时间。';
+                return;
+            }
+            try {
+                genEstimate.textContent = '估算中...';
+                const response = await apiFetch('/estimate', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image_count: imageTotal,
+                        subtitle_mode: subtitleMode,
+                        voice: selectedVoiceId,
+                        character_count: manuscriptData.reduce((sum, item) => sum + String(item.text || '').length, 0),
+                        speech_speed: getSpeechSpeed()
+                    })
+                });
+                if (!response.ok) throw new Error(await readError(response) || '估算失败');
+                const estimate = await response.json();
+                estimatedTime.textContent = estimate.label;
+                estimatedGenerationSeconds = Number(estimate.seconds) || 0;
+                genEstimate.textContent = estimate.label;
+                generationEstimateHint.textContent = estimate.voice_mode === 'clone'
+                    ? `${estimate.label}；首次使用克隆音色需要加载本地模型，实际时间可能略有波动。`
+                    : `${estimate.label}；生成时会持续显示当前阶段和已完成进度。`;
+            } catch {
+                estimatedTime.textContent = selectedFiles.length ? '约需数分钟' : '等待素材';
+                genEstimate.textContent = '约需数分钟';
+                generationEstimateHint.textContent = '暂时无法精确估算，生成时仍会显示实时阶段。';
+            }
+        }
+
+        function scheduleEstimateRefresh() {
+            clearTimeout(estimateTimer);
+            estimateTimer = setTimeout(refreshEstimate, 180);
+        }
+
+        function moveImage(index, direction) {
+            const target = index + direction;
+            const items = isPrepared ? preparedImages : selectedFiles;
+            if (target < 0 || target >= items.length || isRunning) return;
+            const [item] = items.splice(index, 1);
+            items.splice(target, 0, item);
+            if (isPrepared && manuscriptData.length) {
+                manuscriptData = [];
+                manuscriptDirty = false;
+                addLog('画面顺序已变化，请重新生成文稿。');
+            }
+            updatePreview();
+            updateControls();
+            scheduleProjectPersist();
+        }
+
+        function removeImage(index) {
+            if (isRunning) return;
+            const items = isPrepared ? preparedImages : selectedFiles;
+            const removed = items[index];
+            if (!isPrepared && removed && removed.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+            items.splice(index, 1);
+            if (isPrepared) {
+                uploadedFilePaths = preparedImages.map((item) => item.file);
+                screenCount = preparedImages.length;
+                if (manuscriptData.length) {
+                    manuscriptData = [];
+                    manuscriptDirty = false;
+                    addLog('画面数量已变化，请重新生成文稿。');
+                }
+            }
+            updatePreview();
+            updateControls();
+            if (!isPrepared) inspectSelectedFiles();
+            scheduleProjectPersist();
+        }
+
+        function updateImageOption(index, key, value) {
+            if (!preparedImages[index] || isRunning) return;
+            preparedImages[index][key] = value;
+            scheduleProjectPersist();
+        }
+
+        /* ===== 上传素材到后端 ===== */
+        async function uploadMaterials() {
+            const formData = new FormData();
+            selectedFiles.forEach((file) => formData.append('files', file));
+            updateMaterialProgress(3, '正在上传素材…', '上传与拆页');
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `${API_BASE}/upload`);
+                xhr.upload.onprogress = (event) => {
+                    if (!event.lengthComputable) return;
+                    const uploadPercent = Math.round((event.loaded / event.total) * 32);
+                    updateMaterialProgress(
+                        Math.max(3, uploadPercent),
+                        `上传 ${Math.round((event.loaded / event.total) * 100)}%`,
+                        '上传与拆页'
+                    );
+                };
+                xhr.upload.onload = () => {
+                    updateMaterialProgress(38, '文件已上传，正在逐页拆分 PPT/PDF…', '上传与拆页', true);
+                };
+                xhr.onerror = () => reject(new Error('素材上传连接失败'));
+                xhr.onload = () => {
+                    let result = {};
+                    try { result = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
+                    if (xhr.status === 409 && result.requires_confirmation) {
+                        const confirmed = window.confirm(result.message || `当前素材会生成 ${result.count} 张画面，是否继续？`);
+                        if (!confirmed) { reject(new Error('已取消生成')); return; }
+                        updateMaterialProgress(50, `已拆分为 ${result.count} 张画面`, '上传与拆页', false);
+                        resolve(result);
+                        return;
+                    }
+                    if (xhr.status < 200 || xhr.status >= 300) {
+                        reject(new Error(result.error || result.message || '素材上传失败'));
+                        return;
+                    }
+                    updateMaterialProgress(50, `已拆分为 ${result.count} 张画面`, '上传与拆页', false);
+                    resolve(result);
+                };
+                xhr.send(formData);
+            });
+        }
+
+        function buildPreparedImages(uploadResult) {
+            const items = uploadResult.items || (uploadResult.files || []).map((file, index) => ({
+                file, name: `画面 ${index + 1}`,
+                preview_url: `/api/preview/${encodeURIComponent(file.split(/[\\/]/).pop())}`
+            }));
+            return items.map((item, index) => ({
+                file: item.file,
+                name: item.name || `画面 ${index + 1}`,
+                previewUrl: item.preview_url ? `${API_BASE.replace(/\/api$/, '')}${item.preview_url}` : '',
+                kind: 'image',
+                ext: getExtension(item.file || item.name || 'png') || 'png',
+                importance: 'normal',
+                transition: index === items.length - 1 ? 'none' : 'fade'
+            }));
+        }
+
+        /* ===== Step ① → ②：生成文稿 ===== */
+        genManuscriptBtn.addEventListener('click', generateManuscript);
+        splitBtn.addEventListener('click', splitMaterials);
+
+        async function generateManuscript() {
+            const hasMaterials = isPrepared ? preparedImages.length > 0 : selectedFiles.length > 0;
+            if (!hasMaterials || isRunning || manuscriptBusy) return;
+            try {
+                manuscriptBusy = true;
+                isRunning = true;
+                if (currentStep === 2) {
+                    msRegenerateBtn.textContent = '正在重新生成…';
+                    showNotice('正在重新生成全部逐页文稿，请稍候。');
+                }
+                setManuscriptLoading(true, isPrepared ? '准备重新生成逐页文稿…' : '准备上传素材…', isPrepared ? 52 : 1);
+                updateControls();
+                addLog('开始上传素材并生成文稿。');
+
+                if (!isPrepared) {
+                    const uploadResult = await uploadMaterials();
+                    uploadedFilePaths = uploadResult.files;
+                    preparedImages = buildPreparedImages(uploadResult);
+                    isPrepared = true;
+                    screenCount = uploadResult.count;
+                } else {
+                    // “全部重生成”复用当前拆页结果，保留用户的排序、删页和逐页参数。
+                    uploadedFilePaths = preparedImages.map((item) => item.file);
+                    screenCount = preparedImages.length;
+                }
+
+                setManuscriptLoading(true, `AI 正在为 ${preparedImages.length} 页生成讲解文稿…`, 58, 'AI 生成逐页文稿');
+                const imageItems = preparedImages.map((item, index) => ({
+                    file: item.file, name: item.name, order: index + 1,
+                    importance: item.importance || 'normal',
+                    transition: index === preparedImages.length - 1 ? 'none' : (item.transition || 'fade')
+                }));
+                const resp = await apiFetch('/generate-manuscript', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ files: uploadedFilePaths, image_items: imageItems, async: true })
+                });
+                let result = await safeReadJson(resp);
+                if (!resp.ok || !result.success) throw new Error(result.error || '生成文稿失败');
+                if (result.task_id) result = await waitForManuscriptTask(result.task_id, preparedImages.length);
+
+                manuscriptData = (result.manuscript || []).map((m) => ({
+                    page: m.page,
+                    file: m.file,
+                    name: m.name || '',
+                    preview_url: m.preview_url || '',
+                    previewUrl: m.preview_url ? `${API_BASE.replace(/\/api$/, '')}${m.preview_url}` : '',
+                    text: normalizeSpeechText(m.text, m.page)
+                }));
+                msFilename.value = msFilename.value.trim() || result.video_filename || '';
+                manuscriptDirty = false;
+
+                updateMaterialProgress(100, `已完成 ${manuscriptData.length} 页文稿`, '文稿生成完成');
+                addLog(`文稿已生成，共 ${manuscriptData.length} 页。`, 'success');
+                goToStep(2);
+            } catch (error) {
+                addLog(`生成文稿失败：${formatFetchError(error)}`, 'error');
+            } finally {
+                manuscriptBusy = false;
+                isRunning = false;
+                msRegenerateBtn.textContent = '重新生成全部';
+                setManuscriptLoading(false);
+                updateControls();
+                updatePreview();
+            }
+        }
+
+        /* ===== Step ① → ①.5：仅拆页（上传并拆页，不调 AI） ===== */
+        async function splitMaterials() {
+            if (!selectedFiles.length || isRunning || manuscriptBusy || isPrepared) return;
+            try {
+                manuscriptBusy = true;
+                isRunning = true;
+                updateControls();
+                setManuscriptLoading(true, '正在上传并拆页…', 1, '上传与拆页');
+                const uploadResult = await uploadMaterials();
+                uploadedFilePaths = uploadResult.files;
+                preparedImages = buildPreparedImages(uploadResult);
+                if (!preparedImages.length) {
+                    addLog('拆分未得到任何画面，请检查素材是否为空或格式不支持后重试。', 'error');
+                    return;
+                }
+                isPrepared = true;
+                screenCount = preparedImages.length;
+                updateMaterialProgress(100, `已拆分为 ${preparedImages.length} 张画面`, '上传与拆页');
+                addLog(`素材已拆分为 ${preparedImages.length} 张画面，可调整顺序后生成文稿。`, 'success');
+            } catch (error) {
+                addLog(`拆分失败：${formatFetchError(error)}`, 'error');
+            } finally {
+                manuscriptBusy = false;
+                isRunning = false;
+                setManuscriptLoading(false);
+                updateControls();
+                updatePreview();
+            }
+        }
+
+        function updateMaterialProgress(percent, text, title, indeterminate = false) {
+            const safe = Math.max(0, Math.min(100, Number(percent) || 0));
+            msProgressFill.style.width = `${safe}%`;
+            materialProgress.classList.toggle('indeterminate', Boolean(indeterminate));
+            if (title) msWaitTitle.textContent = title;
+            if (text) {
+                msSub.textContent = `${Math.round(safe)}% · ${text}`;
+                msLiveLog.textContent = text;
+            }
+        }
+
+        async function waitForManuscriptTask(taskId, pageCount) {
+            while (true) {
+                const response = await apiFetch(`/status/${taskId}`);
+                const status = await safeReadJson(response);
+                if (!response.ok) throw new Error(status.error || '读取文稿进度失败');
+                updateMaterialProgress(
+                    status.progress || 0,
+                    status.message || '生成逐页文稿中…',
+                    ({ queued: '等待处理', prepare: '准备文稿任务', image_upload: '上传图片给 AI', ai: 'AI 生成逐页文稿', finalize: '整理逐页文稿', completed: '文稿生成完成' })[status.stage] || 'AI 生成逐页文稿',
+                    Boolean(status.indeterminate)
+                );
+                (status.logs || []).forEach((entry) => {
+                    const key = `${entry.time || ''}|${entry.stage || ''}|${entry.message || ''}`;
+                    if (!entry.message || manuscriptLogKeys.has(key)) return;
+                    manuscriptLogKeys.add(key);
+                    addLog(entry.message, entry.stage === 'failed' ? 'error' : '');
+                });
+                if (status.status === 'completed') return status.result || {};
+                if (status.status === 'failed' || status.status === 'cancelled') {
+                    throw new Error(status.message || '生成文稿失败');
+                }
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+        }
+
+        function setManuscriptLoading(on, text, percent = 0, title = '') {
+            msLoading.style.display = on ? 'block' : 'none';
+            if (on) {
+                if (!manuscriptStartedAt) {
+                    manuscriptStartedAt = Date.now();
+                    manuscriptLogKeys = new Set();
+                    msElapsed.textContent = '已用时 0 秒';
+                    manuscriptElapsedTimer = setInterval(() => {
+                        const seconds = Math.floor((Date.now() - manuscriptStartedAt) / 1000);
+                        msElapsed.textContent = `已用时 ${formatDuration(seconds)}`;
+                    }, 1000);
+                }
+                updateMaterialProgress(percent, text, title || '正在处理素材');
+            } else {
+                if (manuscriptElapsedTimer) clearInterval(manuscriptElapsedTimer);
+                manuscriptElapsedTimer = null;
+                manuscriptStartedAt = 0;
+                materialProgress.classList.remove('indeterminate');
+            }
+        }
+
+        /* ===== Step ②：文稿渲染与编辑 ===== */
+        msRegenerateBtn.addEventListener('click', () => {
+            if (manuscriptDirty && !window.confirm('重新生成会覆盖当前对文稿的修改，确定继续吗？')) return;
+            generateManuscript();
+        });
+        document.getElementById('msDownloadBtn').addEventListener('click', downloadManuscript);
+        document.getElementById('backToMaterialsBtn').addEventListener('click', () => { if (!isRunning) goToStep(1); });
+        msApplyBtn.addEventListener('click', () => {
+            const missing = manuscriptMissingPages();
+            if (missing.length) {
+                updateManuscriptHealth();
+                showNotice(`还有 ${missing.length} 页没有讲解文稿，请补充后再继续。`, 'error');
+                const target = manuscriptList.querySelector(`.ms-text[data-index="${missing[0]}"]`);
+                if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.focus(); }
+                return;
+            }
+            goToStep(3);
+        });
+
+        manuscriptList.addEventListener('input', (event) => {
+            const ta = event.target.closest('.ms-text');
+            if (!ta) return;
+            const idx = Number(ta.dataset.index);
+            if (manuscriptData[idx]) {
+                manuscriptData[idx].text = ta.value;
+                manuscriptDirty = true;
+                scheduleEstimateRefresh();
+                const count = document.getElementById(`mscount-${idx}`);
+                if (count) count.textContent = `${ta.value.length} 字`;
+                ta.classList.toggle('invalid', !ta.value.trim());
+                updateManuscriptHealth();
+                scheduleProjectPersist();
+            }
+        });
+
+        function manuscriptMissingPages() {
+            const missing = [];
+            manuscriptData.forEach((item, index) => { if (!(item.text || '').trim()) missing.push(index); });
+            return missing;
+        }
+
+        function isManuscriptComplete() {
+            return manuscriptData.length > 0 && manuscriptMissingPages().length === 0;
+        }
+
+        function updateManuscriptHealth() {
+            const missing = manuscriptMissingPages();
+            const ready = manuscriptData.length > 0 && !missing.length;
+            manuscriptHealth.textContent = !manuscriptData.length ? '等待文稿' : (ready ? `${manuscriptData.length} 页已就绪` : `${missing.length} 页待补充`);
+            manuscriptValidation.textContent = missing.length ? `第 ${missing.map((index) => index + 1).join('、')} 页没有讲解文稿。` : '';
+            manuscriptValidation.classList.toggle('active', missing.length > 0);
+            msApplyBtn.disabled = !ready || isRunning;
+            stepNavButtons.forEach((button) => {
+                const step = Number(button.dataset.step);
+                if (step === 2) button.disabled = !manuscriptData.length || isRunning;
+                if (step === 3) button.disabled = !ready || isRunning;
+            });
+        }
+
+        function renderManuscript() {
+            if (!manuscriptData.length) { manuscriptList.innerHTML = ''; updateManuscriptHealth(); return; }
+            manuscriptList.innerHTML = manuscriptData.map((m, i) => `
+                <div class="ms-card">
+                    <div class="ms-thumb">
+                        ${m.previewUrl
+                            ? `<img src="${escapeAttribute(m.previewUrl)}" alt="${escapeAttribute(m.name || '')}" onerror="this.style.display='none'">`
+                            : `<span style="color:var(--muted);font-size:13px">无预览</span>`}
+                    </div>
+                    <div class="ms-body">
+                        <div class="ms-head">
+                            <span class="ms-page">第 ${i + 1} 页</span>
+                            <span class="ms-name" title="${escapeAttribute(m.name || '')}">${escapeHtml(m.name || '')}</span>
+                        </div>
+                        <textarea class="ms-text${(m.text || '').trim() ? '' : ' invalid'}" data-index="${i}" placeholder="请输入这一页的讲解文稿…">${escapeHtml(m.text || '')}</textarea>
+                        <div class="ms-foot"><span class="ms-count" id="mscount-${i}">${(m.text || '').length} 字</span></div>
+                    </div>
+                </div>`).join('');
+            updateManuscriptHealth();
+        }
+
+        function downloadManuscript() {
+            if (!manuscriptData.length) return;
+            const base = msFilename.value.trim() || '视频文稿';
+            const txt = manuscriptData.map((m, i) => `第${i + 1}页\n${m.text || ''}\n`).join('\n');
+            const md = `# ${base}\n\n` + manuscriptData.map((m, i) => `## 第 ${i + 1} 页\n\n${m.text || ''}\n`).join('\n');
+            downloadText(`${base}.txt`, txt, 'text/plain;charset=utf-8');
+            downloadText(`${base}.md`, md, 'text/markdown;charset=utf-8');
+            addLog('已导出文稿（.txt / .md）。', 'success');
+        }
+
+        function downloadText(filename, content, mime) {
+            const blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        /* ===== Step ③：生成 ===== */
+        startBtn.addEventListener('click', startGeneration);
+        document.getElementById('backToManuscriptBtn').addEventListener('click', () => { if (!isRunning) goToStep(2); });
+        document.getElementById('backToMaterialsFromGenerateBtn').addEventListener('click', () => { if (!isRunning) goToStep(1); });
+
+        function updateGenerateSummary() {
+            const voice = currentVoices.find((v) => v.id === selectedVoiceId);
+            const subLabel = { on: '带字幕', off: '无字幕' }[subtitleMode] || subtitleMode;
+            document.getElementById('genName').textContent = msFilename.value.trim() || '（自动命名）';
+            document.getElementById('genSubtitle').textContent = subLabel;
+            document.getElementById('genVoice').textContent = voice ? voice.name : selectedVoiceId;
+            document.getElementById('genPages').textContent = `${manuscriptData.length} 页`;
+            document.getElementById('genOutputFolder').textContent = outputPath.value.trim() || '—';
+            document.getElementById('genOutputFolder').title = outputPath.value.trim();
+            scheduleEstimateRefresh();
+        }
+
+        /* ===== 整体语速（全局倍率，按 voice_id 记忆）===== */
+        const SPEECH_SPEED_MIN = 0.70;
+        const SPEECH_SPEED_MAX = 1.50;
+        const SPEECH_SPEED_STEP = 0.05;
+        const SPEECH_SPEED_DEFAULT = 1.00;
+
+        function getSpeechSpeed() {
+            const el = document.getElementById('speedSlider');
+            let v = el ? parseFloat(el.value) : NaN;
+            if (isNaN(v)) v = SPEECH_SPEED_DEFAULT;
+            v = Math.max(SPEECH_SPEED_MIN, Math.min(SPEECH_SPEED_MAX, v));
+            v = Math.round(v / SPEECH_SPEED_STEP) * SPEECH_SPEED_STEP;
+            return Math.round(v * 100) / 100;
+        }
+
+        function speechSpeedStorageKey(voiceId) {
+            return `ivt_speech_speed_${voiceId || 'default'}`;
+        }
+
+        function saveSpeechSpeed(voiceId, value) {
+            try { localStorage.setItem(speechSpeedStorageKey(voiceId), String(value)); } catch (e) {}
+        }
+
+        function loadSpeechSpeed(voiceId) {
+            try {
+                const raw = localStorage.getItem(speechSpeedStorageKey(voiceId));
+                if (raw == null) return null;
+                let v = parseFloat(raw);
+                if (isNaN(v)) return null;
+                return Math.max(SPEECH_SPEED_MIN, Math.min(SPEECH_SPEED_MAX, v));
+            } catch (e) { return null; }
+        }
+
+        function refreshSpeedLabel(value) {
+            const label = document.getElementById('speedValue');
+            if (label) label.textContent = `${value.toFixed(2)}×`;
+        }
+
+        function applySavedSpeechSpeed() {
+            const slider = document.getElementById('speedSlider');
+            if (!slider) return;
+            let v = loadSpeechSpeed(selectedVoiceId);
+            if (v == null) v = SPEECH_SPEED_DEFAULT;
+            v = Math.round(v / SPEECH_SPEED_STEP) * SPEECH_SPEED_STEP;
+            slider.value = v.toFixed(2);
+            refreshSpeedLabel(v);
+        }
+
+        (function wireSpeedSlider() {
+            const slider = document.getElementById('speedSlider');
+            if (!slider) return;
+            slider.addEventListener('input', () => {
+                const v = getSpeechSpeed();
+                refreshSpeedLabel(v);
+                saveSpeechSpeed(selectedVoiceId, v);
+                scheduleEstimateRefresh();
+            });
+        })();
+
+        async function startGeneration() {
+            if (isRunning) return;
+            if (!isManuscriptComplete()) {
+                showNotice('部分页面缺少讲解文稿，请返回补充后再生成。', 'error');
+                goToStep(2);
+                return;
+            }
+            const selectedVoice = currentVoices.find((voice) => voice.id === selectedVoiceId);
+            if (!selectedVoice || selectedVoice.available === false) {
+                showNotice(selectedVoice?.availability_reason || '所选音色当前不可用，请重新选择。', 'error');
+                return;
+            }
+            try {
+                await saveTypedOutputFolder();
+                beginRunningState();
+                addLog('开始生成视频。');
+                updateProgress(10, '启动生成任务...');
+
+                const imageItems = manuscriptData.map((m, index) => {
+                    const opt = preparedImages.find((p) => p.file === m.file) || {};
+                    return {
+                        file: m.file,
+                        name: m.name || `画面 ${index + 1}`,
+                        order: index + 1,
+                        importance: opt.importance || 'normal',
+                        transition: index === manuscriptData.length - 1 ? 'none' : (opt.transition || 'fade')
+                    };
+                });
+                const manuscriptPayload = manuscriptData.map((m) => ({ file: m.file, text: m.text || '' }));
+
+                const generateResponse = await apiFetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        files: uploadedFilePaths,
+                        image_items: imageItems,
+                        subtitle_mode: subtitleMode,
+                        output_mode: '1080p',
+                        voice: selectedVoiceId,
+                        speech_speed: getSpeechSpeed(),
+                        output_name: msFilename.value.trim(),
+                        source_names: selectedFiles.map((file) => file.name),
+                        manuscript: manuscriptPayload,
+                        confirm_large: manuscriptData.length > 50
+                    })
+                });
+                if (!generateResponse.ok) throw new Error(await readError(generateResponse) || '启动生成任务失败');
+
+                const generateResult = await generateResponse.json();
+                currentTaskId = generateResult.task_id;
+                scheduleProjectPersist();
+                updateControls();
+                startStatusCheck();
+            } catch (error) {
+                addLog(`启动失败：${formatFetchError(error)}`, 'error');
+                resetUI();
+            }
+        }
+
+        /* ===== 运行态 / 进度 ===== */
+        function beginRunningState() {
+            currentTaskId = null;
+            currentCompletedTaskId = null;
+            isRunning = true;
+            startedAt = Date.now();
+            displayedProgress = 0;
+            serverLogKeys = new Set();
+            progressSection.classList.add('active');
+            downloadSection.classList.remove('active');
+            downloadSection.innerHTML = '';
+            completedOutputs = [];
+            spinner.classList.add('active');
+            waitTitle.textContent = '正在处理';
+            statusChip.textContent = '生成中';
+            document.getElementById('genStatusText').textContent = '生成中';
+            startBtn.textContent = '生成中...';
+            cancelBtn.classList.remove('hidden');
+            updateControls();
+            startElapsedTimer();
+        }
+
+        function resumeGeneration(taskId, savedStartedAt) {
+            currentTaskId = taskId;
+            currentCompletedTaskId = null;
+            isRunning = true;
+            startedAt = Number(savedStartedAt) || Date.now();
+            displayedProgress = 0;
+            serverLogKeys = new Set();
+            progressSection.classList.add('active');
+            downloadSection.classList.remove('active');
+            spinner.classList.add('active');
+            waitTitle.textContent = '正在恢复生成任务';
+            statusChip.textContent = '生成中';
+            document.getElementById('genStatusText').textContent = '生成中';
+            startBtn.textContent = '生成中...';
+            cancelBtn.classList.remove('hidden');
+            updateControls();
+            startElapsedTimer();
+            startStatusCheck();
+        }
+
+        function startStatusCheck() {
+            stopStatusCheck();
+            statusCheckInterval = setInterval(async () => {
+                try {
+                    const response = await apiFetch(`/status/${currentTaskId}`);
+                    if (!response.ok) throw new Error('获取任务状态失败');
+                    const status = await response.json();
+                    const progress = smoothProgress(status.progress || 0, status.status);
+                    updateProgress(progress, status.message || '处理中...');
+                    progressSection.classList.toggle('indeterminate', Boolean(status.indeterminate));
+
+                    (status.logs || []).forEach((entry) => {
+                        const key = `${entry.time || ''}|${entry.stage || ''}|${entry.message || ''}`;
+                        if (!entry.message || serverLogKeys.has(key)) return;
+                        serverLogKeys.add(key);
+                        addLog(entry.message, entry.stage === 'failed' ? 'error' : '');
+                    });
+
+                    const stageTitles = {
+                        queued: '等待开始', prepare: '准备生成', upload: '上传素材',
+                        manuscript: '准备文稿', tts: '正在生成配音', subtitle: '正在生成字幕',
+                        video: '正在合成视频', completed: '已完成'
+                    };
+                    waitTitle.textContent = stageTitles[status.stage] || '正在处理';
+
+                    if (status.stage === 'video' && status.status === 'processing') {
+                        progressText.textContent = `${Math.round(progress)}% · 正在编码视频，时间较长时属于正常情况，请不要关闭页面。`;
+                    }
+                    if (status.status === 'completed') {
+                        addLog('视频生成完成。', 'success');
+                        stopStatusCheck();
+                        showDownload(status.outputs || []);
+                    } else if (status.status === 'failed') {
+                        addLog(`生成失败：${status.message}`, 'error');
+                        stopStatusCheck();
+                        resetUI();
+                    } else if (status.status === 'cancelled') {
+                        addLog('任务已取消。');
+                        stopStatusCheck();
+                        resetUI();
+                    }
+                } catch (error) {
+                    addLog(`状态检查失败：${formatFetchError(error)}`, 'error');
+                }
+            }, 1300);
+        }
+
+        function smoothProgress(serverProgress, status) {
+            let target = Number(serverProgress) || 0;
+            // 只展示后端确认完成的工作量，不用计时器伪造进度。
+            displayedProgress = Math.max(displayedProgress, target);
+            return Math.min(100, displayedProgress);
+        }
+
+        function updateProgress(percent, text) {
+            const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+            progressFill.style.width = `${safePercent}%`;
+            progressText.textContent = `${Math.round(safePercent)}% · ${text}`;
+        }
+
+        function showDownload(outputs) {
+            currentCompletedTaskId = currentTaskId;
+            currentTaskId = null;
+            isRunning = false;
+            spinner.classList.remove('active');
+            progressSection.classList.remove('indeterminate');
+            waitTitle.textContent = '已完成';
+            statusChip.textContent = '已完成';
+            document.getElementById('genStatusText').textContent = '已完成';
+            startBtn.textContent = '开始生成 1080p 视频';
+            cancelBtn.classList.add('hidden');
+            updateProgress(100, '视频生成完成');
+            completedOutputs = outputs || [];
+            renderDownloadSection(completedOutputs);
+            stopElapsedTimer();
+            updateControls();
+            scheduleProjectPersist();
+        }
+
+        function renderDownloadSection(outputs) {
+            downloadSection.innerHTML = outputs.map((item, index) => `
+                <button type="button" onclick="openVideo('${escapeAttribute(item.open_url || '')}')">
+                    播放${escapeHtml(item.label || `视频 ${index + 1}`)}
+                </button>
+            `).join('') + `
+                <button class="secondary-result" type="button" onclick="downloadVideo()">下载视频文件</button>
+                <button class="secondary-result" type="button" onclick="openOutputFolder()">打开保存位置</button>
+                <button class="secondary-result" type="button" onclick="startNewProject()">开始新项目</button>
+                <div class="hint" style="width:100%;font-size:12px;color:var(--muted);margin-top:6px">已保存到：${escapeHtml(outputs[0] && outputs[0].path ? outputs[0].path : outputPath.value)}</div>
+            `;
+            downloadSection.classList.add('active');
+        }
+
+        function restoreCompletedGeneration() {
+            isRunning = false;
+            spinner.classList.remove('active');
+            progressSection.classList.add('active');
+            waitTitle.textContent = '已完成';
+            statusChip.textContent = '已完成';
+            document.getElementById('genStatusText').textContent = '已完成';
+            startBtn.textContent = '开始生成 1080p 视频';
+            cancelBtn.classList.add('hidden');
+            updateProgress(100, '视频生成完成');
+            renderDownloadSection(completedOutputs);
+            updateControls();
+        }
+
+        async function openVideo(openUrl) {
+            if (!openUrl) return;
+            try {
+                // open_url 形如 /api/open-video/<id>，apiFetch 会自动补全 /api 前缀，
+                // 因此先去掉前导 /api 再交给 apiFetch，避免强依赖 open_url 必以 /api 开头。
+                const response = await apiFetch(openUrl.replace(/^\/api/, ''), { method: 'POST' });
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '打开视频失败');
+            } catch (error) {
+                addLog(`打开视频失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        function downloadVideo() {
+            if (!currentCompletedTaskId) return;
+            try {
+                // 后端 GET /api/download/<task_id> 返回 as_attachment 视频；
+                // 用临时 <a> 触发浏览器下载，避免页面跳转。API_BASE 已含 /api 前缀。
+                const link = document.createElement('a');
+                link.href = `${API_BASE}/download/${currentCompletedTaskId}`;
+                link.rel = 'noopener';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            } catch (error) {
+                addLog(`下载视频失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        async function openOutputFolder() {
+            try {
+                const response = await apiFetch(`/open-output-folder/${currentCompletedTaskId}`, { method: 'POST' });
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '打开输出文件夹失败');
+            } catch (error) {
+                addLog(`打开输出文件夹失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        function resetUI() {
+            currentTaskId = null;
+            isRunning = false;
+            spinner.classList.remove('active');
+            progressSection.classList.remove('active');
+            progressSection.classList.remove('indeterminate');
+            displayedProgress = 0;
+            startedAt = null;
+            updateProgress(0, '准备中...');
+            waitTitle.textContent = '正在处理';
+            elapsedText.textContent = '已用时 0 秒';
+            startBtn.textContent = '开始生成 1080p 视频';
+            cancelBtn.classList.add('hidden');
+            statusChip.textContent = selectedFiles.length ? '已选择' : '待上传';
+            document.getElementById('genStatusText').textContent = '准备中';
+            stopElapsedTimer();
+            updateControls();
+            scheduleProjectPersist();
+        }
+
+        function startElapsedTimer() {
+            stopElapsedTimer();
+            elapsedText.textContent = estimatedGenerationSeconds ? `预计 ${formatDuration(estimatedGenerationSeconds)}` : '已用时 0 秒';
+            elapsedInterval = setInterval(() => {
+                if (!startedAt) return;
+                const seconds = Math.floor((Date.now() - startedAt) / 1000);
+                const elapsed = formatDuration(seconds);
+                elapsedText.textContent = estimatedGenerationSeconds
+                    ? `已用时 ${elapsed} · 预计约 ${formatDuration(estimatedGenerationSeconds)}`
+                    : `已用时 ${elapsed}`;
+            }, 1000);
+        }
+        function formatDuration(seconds) {
+            const value = Math.max(0, Math.round(Number(seconds) || 0));
+            return value < 60 ? `${value} 秒` : `${Math.floor(value / 60)} 分 ${value % 60} 秒`;
+        }
+        function stopElapsedTimer() { if (elapsedInterval) { clearInterval(elapsedInterval); elapsedInterval = null; } }
+        function stopStatusCheck() { if (statusCheckInterval) { clearInterval(statusCheckInterval); statusCheckInterval = null; } }
+
+        /* ===== 清空 / 取消 ===== */
+        function startNewProject() {
+            if (isRunning) return;
+            selectedFiles.forEach((file) => { if (file.previewUrl) URL.revokeObjectURL(file.previewUrl); });
+            selectedFiles = [];
+            uploadedFilePaths = [];
+            preparedImages = [];
+            isPrepared = false;
+            screenCount = 0;
+            manuscriptData = [];
+            manuscriptDirty = false;
+            currentCompletedTaskId = null;
+            completedOutputs = [];
+            msFilename.value = '';
+            downloadSection.classList.remove('active');
+            downloadSection.innerHTML = '';
+            progressSection.classList.remove('active');
+            try { localStorage.removeItem(PROJECT_SESSION_KEY); } catch (e) {}
+            updatePreview();
+            updateControls();
+            refreshEstimate();
+            goToStep(1);
+        }
+
+        clearBtn.addEventListener('click', () => {
+            if (!window.confirm('确定清空当前素材和已生成的文稿吗？')) return;
+            startNewProject();
+            addLog('已清空素材。');
+        });
+
+        cancelBtn.addEventListener('click', async () => {
+            if (!currentTaskId) return;
+            if (!window.confirm('确定取消正在进行的视频生成吗？')) return;
+            try {
+                await apiFetch(`/cancel/${currentTaskId}`, { method: 'POST' });
+                addLog('已请求取消。', 'error');
+            } catch (error) {
+                addLog(`取消失败：${formatFetchError(error)}`, 'error');
+            } finally {
+                stopStatusCheck();
+                resetUI();
+            }
+        });
+
+        /* ===== 控件可用性 ===== */
+        function updateControls() {
+            const hasFiles = isPrepared ? preparedImages.length > 0 : selectedFiles.length > 0;
+            const selectedVoice = currentVoices.find((voice) => voice.id === selectedVoiceId);
+            genManuscriptBtn.disabled = !hasFiles || isRunning || manuscriptBusy;
+            splitBtn.disabled = !selectedFiles.length || isPrepared || isRunning || manuscriptBusy;
+            clearBtn.disabled = !(hasFiles || isPrepared) || isRunning || manuscriptBusy;
+            startBtn.disabled = !isManuscriptComplete() || !selectedVoice || selectedVoice.available === false || isRunning;
+            cancelBtn.disabled = currentTaskId === null;
+            segmentButtons.forEach((button) => button.disabled = isRunning);
+            chooseOutputBtn.disabled = isRunning;
+            outputPath.disabled = isRunning;
+            msFilename.disabled = isRunning;
+            msRegenerateBtn.disabled = isRunning || manuscriptBusy;
+            document.getElementById('msDownloadBtn').disabled = isRunning;
+            document.getElementById('backToMaterialsBtn').disabled = isRunning;
+            document.getElementById('backToManuscriptBtn').disabled = isRunning;
+            document.getElementById('backToMaterialsFromGenerateBtn').disabled = isRunning;
+            uploadArea.classList.toggle('disabled', isRunning || manuscriptBusy);
+            fileInput.disabled = isRunning || manuscriptBusy;
+            stepNavButtons.forEach((button) => { if (isRunning) button.disabled = true; });
+            const speedSlider = document.getElementById('speedSlider');
+            if (speedSlider) speedSlider.disabled = isRunning;
+            [voiceFileInput, voiceNameInput, voiceRefTextInput, voiceConsentInput, voiceCreateBtn].forEach((element) => {
+                element.disabled = isRunning;
+            });
+            updateVoiceControls();
+            updateManuscriptHealth();
+        }
+
+        /* ===== 语音 / 音色管理 ===== */
+        voiceList.addEventListener('click', (event) => {
+            const item = event.target.closest('.voice-item');
+            if (!item) return;
+            const id = item.dataset.id;
+            const actionBtn = event.target.closest('button');
+            if (actionBtn) {
+                const action = actionBtn.dataset.action;
+                if (action === 'rename') { handleRename(id); return; }
+                if (action === 'delete') { handleDelete(id); return; }
+                if (action === 'download') { downloadVoice(id); return; }
+                return;
+            }
+            if (isRunning) return;
+            const voice = currentVoices.find((v) => v.id === id);
+            if (voice && voice.available === false) {
+                voiceError.textContent = voice.availability_reason || '该云端音色当前不可用。';
+                return;
+            }
+            voiceError.textContent = '';
+            selectedVoiceId = id;
+            renderVoices(currentVoices);
+            applySavedSpeechSpeed();
+            updateGenerateSummary();
+            scheduleEstimateRefresh();
+            updateControls();
+            scheduleProjectPersist();
+        });
+        voiceList.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            if (event.target.closest('button')) return;
+            const item = event.target.closest('.voice-item');
+            if (!item) return;
+            event.preventDefault();
+            item.click();
+        });
+
+        async function loadVoices() {
+            try {
+                const response = await apiFetch('/voices');
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '读取语音列表失败');
+                currentVoices = result.voices || [];
+                if (!currentVoices.find((v) => v.id === selectedVoiceId && v.available !== false)) selectedVoiceId = 'default';
+                renderVoices(currentVoices);
+                applySavedSpeechSpeed();
+                scheduleEstimateRefresh();
+                updateControls();
+            } catch (error) {
+                addLog(`读取语音列表失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        function renderVoices(voices) {
+            voiceList.innerHTML = voices.map((v) => {
+                const selected = v.id === selectedVoiceId ? ' selected' : '';
+                const unavailable = v.available === false ? ' unavailable' : '';
+                const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : '默认云端';
+                const availabilityLabel = v.availability_reason ? ` · ${v.availability_reason}` : '';
+                const actionParts = [];
+                if (v.deletable) {
+                    actionParts.push(`<button type="button" data-action="rename" title="重命名">重命名</button>`);
+                    actionParts.push(`<button type="button" data-action="download" title="导出参考音频">导出</button>`);
+                    actionParts.push(`<button type="button" class="del" data-action="delete" title="删除">删除</button>`);
+                }
+                const actions = actionParts.length ? `<div class="voice-actions">${actionParts.join('')}</div>` : '';
+                return `
+                    <div class="voice-item${selected}${unavailable}" data-id="${escapeAttribute(v.id)}" data-available="${v.available !== false}" role="radio" aria-checked="${v.id === selectedVoiceId}" aria-disabled="${v.available === false}" tabindex="0">
+                        <span class="voice-dot"></span>
+                        <span class="voice-main">
+                            <span class="voice-name" title="${escapeAttribute(v.name)}">${escapeHtml(v.name)}</span>
+                            <span class="voice-tag">${escapeHtml(typeLabel + availabilityLabel)}</span>
+                        </span>
+                        ${actions}
+                    </div>`;
+            }).join('');
+        }
+
+        function updateVoiceControls() {
+            const disabled = isRunning || manuscriptBusy;
+            voiceList.querySelectorAll('.voice-item').forEach((el) => {
+                el.style.opacity = disabled ? '0.6' : '1';
+                el.style.pointerEvents = disabled ? 'none' : 'auto';
+            });
+        }
+
+        async function handleRename(id) {
+            const voice = currentVoices.find((v) => v.id === id);
+            if (!voice) return;
+            const name = window.prompt('重命名音色：', voice.name);
+            if (name === null) return;
+            try {
+                const response = await apiFetch(`/voices/${id}/rename`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name.trim() })
+                });
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '重命名失败');
+                addLog(`已重命名音色为「${name.trim()}」`, 'success');
+                loadVoices();
+            } catch (error) {
+                addLog(`重命名失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        async function handleDelete(id) {
+            if (!window.confirm('确定删除该克隆音色？此操作不可恢复。')) return;
+            try {
+                const response = await apiFetch(`/voices/${id}`, { method: 'DELETE' });
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '删除失败');
+                if (selectedVoiceId === id) selectedVoiceId = 'default';
+                addLog('已删除克隆音色', 'success');
+                loadVoices();
+            } catch (error) {
+                addLog(`删除失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        async function downloadVoice(id) {
+            try {
+                const url = `${API_BASE}/voices/${encodeURIComponent(id)}/download`;
+                const response = await apiFetch(`/voices/${id}/download`);
+                if (!response.ok) throw new Error('导出失败');
+                const blob = await response.blob();
+                const voice = currentVoices.find((v) => v.id === id);
+                const fname = `${(voice ? voice.name : id).replace(/[\\/:*?"<>|]/g, '_')}.wav`;
+                const objUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = objUrl; a.download = fname;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+                addLog('已导出克隆参考音频。', 'success');
+            } catch (error) {
+                addLog(`导出失败：${formatFetchError(error)}`, 'error');
+            }
+        }
+
+        function setVoiceCreateStatus(message, type = '') {
+            voiceCreateStatus.textContent = message;
+            voiceCreateStatus.className = `voice-create-status${type ? ` ${type}` : ''}`;
+        }
+
+        function clearVoiceFilePreview() {
+            selectedVoiceFile = null;
+            if (selectedVoiceFileUrl) URL.revokeObjectURL(selectedVoiceFileUrl);
+            selectedVoiceFileUrl = '';
+            voiceAudioPreview.onloadedmetadata = null;
+            voiceAudioPreview.onerror = null;
+            voiceAudioPreview.pause();
+            voiceAudioPreview.removeAttribute('src');
+            voiceAudioPreview.classList.remove('active');
+            voiceFileInput.value = '';
+            voiceFileMeta.className = 'voice-file-meta';
+            voiceFileMeta.textContent = '尚未选择文件';
+        }
+
+        function acceptVoiceFile(file) {
+            if (!file) return;
+            const ext = String(file.name || '').split('.').pop().toLowerCase();
+            if (!['wav', 'mp3'].includes(ext)) {
+                clearVoiceFilePreview();
+                setVoiceCreateStatus('格式不支持，请选择 WAV 或 MP3 文件。', 'error');
+                return;
+            }
+            if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+                clearVoiceFilePreview();
+                setVoiceCreateStatus(file.size <= 0 ? '音频文件为空。' : '文件超过 10MB，请压缩后再上传。', 'error');
+                return;
+            }
+
+            clearVoiceFilePreview();
+            selectedVoiceFile = file;
+            selectedVoiceFileUrl = URL.createObjectURL(file);
+            voiceAudioPreview.src = selectedVoiceFileUrl;
+            voiceAudioPreview.classList.add('active');
+            voiceFileMeta.textContent = `正在读取 ${file.name}…`;
+            setVoiceCreateStatus('');
+            voiceAudioPreview.onloadedmetadata = () => {
+                const duration = Number(voiceAudioPreview.duration || 0);
+                if (!Number.isFinite(duration) || duration < 3 || duration > 60) {
+                    const reason = duration < 3 ? '录音不足 3 秒，请选择更长的音频。' : '录音超过 60 秒，请先缩短后再上传。';
+                    clearVoiceFilePreview();
+                    setVoiceCreateStatus(reason, 'error');
+                    return;
+                }
+                voiceFileMeta.className = 'voice-file-meta ready';
+                voiceFileMeta.textContent = `${file.name} · ${duration.toFixed(1)} 秒 · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+                if (!voiceNameInput.value.trim()) {
+                    voiceNameInput.value = file.name.replace(/\.[^.]+$/, '').slice(0, 30);
+                }
+                setVoiceCreateStatus(duration > 15 ? '提交后将自动选取其中最清晰的 15 秒。' : '录音符合要求，可以创建音色。');
+            };
+            voiceAudioPreview.onerror = () => {
+                clearVoiceFilePreview();
+                setVoiceCreateStatus('无法读取这段音频，请确认文件未损坏。', 'error');
+            };
+        }
+
+        voiceDrop.addEventListener('click', () => voiceFileInput.click());
+        voiceDrop.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                voiceFileInput.click();
+            }
+        });
+        voiceFileInput.addEventListener('change', () => acceptVoiceFile(voiceFileInput.files[0]));
+        ['dragenter', 'dragover'].forEach((name) => voiceDrop.addEventListener(name, (event) => {
+            event.preventDefault();
+            voiceDrop.classList.add('dragover');
+        }));
+        ['dragleave', 'drop'].forEach((name) => voiceDrop.addEventListener(name, (event) => {
+            event.preventDefault();
+            voiceDrop.classList.remove('dragover');
+        }));
+        voiceDrop.addEventListener('drop', (event) => acceptVoiceFile(event.dataTransfer.files[0]));
+
+        voiceCreateForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const name = voiceNameInput.value.trim();
+            let refText = voiceRefTextInput.value.trim();
+            if (!selectedVoiceFile) { setVoiceCreateStatus('请先选择参考音频。', 'error'); return; }
+            if (!name) { setVoiceCreateStatus('请填写音色名称。', 'error'); voiceNameInput.focus(); return; }
+            if (!voiceConsentInput.checked) { setVoiceCreateStatus('请先确认已获得声音使用授权。', 'error'); voiceConsentInput.focus(); return; }
+
+            voiceCreateBtn.disabled = true;
+            let autoTranscript = '';
+            try {
+                if (refText.length < 2) {
+                    voiceCreateBtn.textContent = '正在识别逐字稿…';
+                    setVoiceCreateStatus('未填写逐字稿，正在本机识别参考音频，请稍候…');
+                    const transcriptForm = new FormData();
+                    transcriptForm.append('file', selectedVoiceFile, selectedVoiceFile.name);
+                    const transcriptResponse = await apiFetch('/voices/transcribe', { method: 'POST', body: transcriptForm });
+                    const transcriptResult = await safeReadJson(transcriptResponse);
+                    if (!transcriptResponse.ok || !transcriptResult.ok) {
+                        throw new Error(transcriptResult.reason || '没有识别到清晰文字，请手动填写逐字稿');
+                    }
+                    refText = transcriptResult.text.trim();
+                    autoTranscript = refText;
+                    voiceRefTextInput.value = refText;
+                    setVoiceCreateStatus(`已自动识别并填入逐字稿：${refText}`);
+                }
+
+                const form = new FormData();
+                form.append('file', selectedVoiceFile, selectedVoiceFile.name);
+                form.append('name', name);
+                form.append('ref_text', refText);
+                form.append('consent', 'true');
+                voiceCreateBtn.textContent = '正在分析并创建…';
+                setVoiceCreateStatus(autoTranscript ? '逐字稿已应用，正在创建克隆音色…' : '正在检测有效人声并生成标准参考片段，请稍候…');
+                const response = await apiFetch('/voices/create', { method: 'POST', body: form });
+                const result = await safeReadJson(response);
+                if (!response.ok || !result.ok) throw new Error(result.reason || result.error || '创建失败');
+                selectedVoiceId = result.voice.id;
+                const info = result.processing || {};
+                voiceCreateForm.reset();
+                clearVoiceFilePreview();
+                setVoiceCreateStatus(
+                    autoTranscript
+                        ? `「${name}」创建成功；自动识别逐字稿：${autoTranscript}`
+                        : info.auto_trimmed
+                        ? `「${name}」创建成功，已从 ${info.source_duration_sec} 秒录音中选取 ${info.duration_sec} 秒有效人声。`
+                        : `「${name}」创建成功，参考音频 ${info.duration_sec} 秒。`,
+                    'success'
+                );
+                addLog(`已创建克隆音色「${name}」`, 'success');
+                await loadVoices();
+                loadGpuVoiceStatus();
+            } catch (error) {
+                setVoiceCreateStatus(formatFetchError(error), 'error');
+                addLog(`创建音色失败：${formatFetchError(error)}`, 'error');
+            } finally {
+                voiceCreateBtn.disabled = false;
+                voiceCreateBtn.textContent = '创建克隆音色';
+            }
+        });
+
+        /* ===== 性能 / GPU 配置 ===== */
+        async function loadConfig() {
+            try {
+                const response = await apiFetch('/config');
+                if (!response.ok) throw new Error('读取配置失败');
+                gpuConfig = await response.json();
+                renderGpu();
+            } catch (error) {
+                document.getElementById('gpuGrid').innerHTML = `<div class="row"><span>配置读取失败</span></div>`;
+            }
+        }
+
+        function renderGpu() {
+            const c = gpuConfig || {};
+            const align = c.whisper_available ? 'faster-whisper 精确对齐' : '文本长度估算';
+            const nvenc = c.nvenc_supported
+                ? `支持（档位 ${c.nvenc_preset || 'p1'}，CQ ${c.nvenc_cq != null ? c.nvenc_cq : 23}）`
+                : '不支持（软件编码）';
+            const gpuOn = c.gpu_accel
+                ? `<span class="gpu-on">开启</span>`
+                : `<span class="gpu-off">关闭</span>`;
+            document.getElementById('gpuGrid').innerHTML = `
+                <div class="row"><span>GPU 加速</span><b>${gpuOn}</b></div>
+                <div class="row"><span>CUDA 设备</span><b>${escapeHtml(c.cuda_device || 'CPU')}</b></div>
+                <div class="row"><span>字幕对齐</span><b>${escapeHtml(align)}</b></div>
+                <div class="row"><span>Whisper 模型</span><b>${escapeHtml(c.whisper_model || 'base')}</b></div>
+                <div class="row"><span>NVENC 编码</span><b>${escapeHtml(nvenc)}</b></div>
+            `;
+            // 有 GPU 时默认展开
+            document.getElementById('gpuDetails').open = !!c.gpu_accel;
+        }
+
+        /* ===== 旁白 / 音色 GPU 加速状态显示（只读，后端无 /gpu-voice/* 路由） ===== */
+        let gpuVoiceState = null;
+
+        async function loadGpuVoiceStatus() {
+            // 后端未提供 /gpu-voice/status 路由；基于本地 /api/config + /api/voices 推导状态。
+            try {
+                const [cfgResp, voicesResp] = await Promise.all([
+                    apiFetch('/config'),
+                    apiFetch('/voices'),
+                ]);
+                const cfg = cfgResp.ok ? (await safeReadJson(cfgResp)) : {};
+                const voicesData = voicesResp.ok ? (await safeReadJson(voicesResp)) : { voices: [] };
+                const hasCosyvoice3 = (voicesData.voices || []).some((v) => v.type === 'cosyvoice3');
+                const cosy3Ready = (voicesData.voices || []).some((v) => v.type === 'cosyvoice3' && v.available !== false);
+                gpuVoiceState = {
+                    hardware_capable: !!cfg.gpu_accel,
+                    gpu_name: cfg.cuda_device || null,
+                    gpu_accel_enabled: !!cfg.gpu_accel,
+                    has_dependency: cosy3Ready,
+                    has_cosyvoice3_voice: hasCosyvoice3,
+                };
+                renderGpuVoice();
+                updateVoiceControls();
+            } catch (error) {
+                document.getElementById('gpuVoiceBody').innerHTML =
+                    `<div class="gpu-voice-status off">GPU 语音状态读取失败：${escapeHtml(formatFetchError(error))}</div>`;
+            }
+        }
+
+        function renderGpuVoice() {
+            const s = gpuVoiceState || {};
+            const body = document.getElementById('gpuVoiceBody');
+            const hint = document.getElementById('gpuVoiceHint');
+            const hideHint = () => hint && hint.classList.add('hidden');
+            const showHint = () => hint && hint.classList.remove('hidden');
+
+            if (!s.hardware_capable) {
+                body.innerHTML = `<div class="gpu-voice-status off">未检测到可用 GPU。默认音色仍可使用 Edge TTS。</div>`;
+                hideHint();
+                return;
+            }
+
+            const gpuName = escapeHtml(s.gpu_name || 'NVIDIA GPU');
+            let html = `<div class="gpu-voice-info">${gpuName}</div>`;
+
+            if (s.gpu_accel_enabled && s.has_dependency) {
+                html += `<div class="gpu-voice-status on">CosyVoice3 本地克隆已就绪</div>`;
+                showHint();
+            } else if (s.has_cosyvoice3_voice) {
+                html += `<div class="gpu-voice-status warn">CosyVoice3 依赖未就绪，请检查权重 / venv / Matcha-TTS</div>`;
+                hideHint();
+            } else {
+                html += `<div class="gpu-voice-status off">当前使用 Edge TTS；注册 CosyVoice3 音色后可启用本地克隆。</div>`;
+                hideHint();
+            }
+            body.innerHTML = html;
+        }
+
+        /* ===== 工具函数 ===== */
+        function showNotice(message, type = '') {
+            clearTimeout(noticeTimer);
+            appNoticeText.textContent = message;
+            appNotice.className = `app-notice active${type ? ` ${type}` : ''}`;
+            noticeTimer = setTimeout(() => { appNotice.className = 'app-notice'; }, type === 'error' ? 9000 : 5000);
+        }
+
+        function addLog(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logBox.appendChild(entry);
+            logBox.scrollTop = logBox.scrollHeight;
+            if (type === 'error' || type === 'success') showNotice(message, type);
+        }
+
+        function resolveApiBase() {
+            if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+                return `${window.location.origin}/api`;
+            }
+            return 'http://127.0.0.1:5000/api';
+        }
+
+        async function apiFetch(path, options = {}) {
+            const bases = [API_BASE, 'http://127.0.0.1:5000/api', 'http://localhost:5000/api']
+                .filter((base, index, list) => base && list.indexOf(base) === index);
+            let lastError = null;
+            for (const base of bases) {
+                try {
+                    const response = await fetch(`${base}${path}`, options);
+                    API_BASE = base;
+                    return response;
+                } catch (error) { lastError = error; }
+            }
+            throw lastError || new Error('无法连接本地服务');
+        }
+
+        async function readError(response) {
+            try { const body = await response.json(); return body.error || body.message || ''; }
+            catch { return ''; }
+        }
+        async function safeReadJson(response) {
+            try { return await response.json(); } catch { return {}; }
+        }
+        function formatFetchError(error) {
+            if (error && error.message === 'Failed to fetch') return '无法连接本地服务，请重新打开程序后再试';
+            return error && error.message ? error.message : '未知错误';
+        }
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+            }[char]));
+        }
+        function escapeAttribute(value) { return escapeHtml(value).replace(/`/g, '&#096;'); }
+
+        // 防止把原始 agent JSON（如 {"video_filename":...,"items":[...]}）当成逐页话术塞进 textarea
+        function normalizeSpeechText(raw, page) {
+            if (typeof raw !== 'string') return raw == null ? '' : String(raw);
+            const s = raw.trim();
+            if (s.charAt(0) !== '{' && s.charAt(0) !== '[') return raw; // 已是正常话术
+            try {
+                const obj = JSON.parse(s);
+                if (obj && Array.isArray(obj.items)) {
+                    const hit = obj.items.find((x) => x && Number(x.image_id ?? x.id ?? x.global_id) === Number(page))
+                        || obj.items[0];
+                    return hit ? normalizeSpeechText(hit.speech ?? hit.text ?? hit.content ?? '', page) : '';
+                }
+                if (obj && typeof obj === 'object') {
+                    return normalizeSpeechText(obj.speech ?? obj.text ?? obj.content ?? obj.value ?? '', page);
+                }
+                return '';
+            } catch (e) {
+                // 看起来像 agent JSON 的残片不能进入话术；普通含大括号文本仍保留。
+                return /"(?:video_filename|items|image_id|speech)"\s*:/.test(s) ? '' : raw;
+            }
+        }
+
+        /* 初始化控件状态 */
+        updateControls();
+    </script>
+</body>
+</html>

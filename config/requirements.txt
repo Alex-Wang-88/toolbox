@@ -1,0 +1,18 @@
+flask>=3.0,<4
+flask-cors>=4.0
+requests>=2.31
+edge-tts>=7.0
+moviepy>=1.0.3,<2
+pysrt>=1.1
+numpy>=1.26
+pillow>=10
+PyMuPDF>=1.24
+pywin32>=306; platform_system == "Windows"
+python-docx>=1.1
+
+# GPU 加速分支专用：本地 Whisper 字幕对齐（需 CUDA 环境）
+faster-whisper>=1.0.0
+
+# 注：CosyVoice3 运行在独立 venv（tts_poc/venv_cosyvoice，Python 3.10 / CUDA 12.x），
+# 不纳入主流程 requirements；其依赖由该 venv 单独安装。
+# 主流程仅通过 subprocess + JSON-RPC 调用 cosyvoice3_worker.py，无需在 Py3.13 环境安装 torch / TTS。
