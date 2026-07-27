@@ -8,9 +8,9 @@
 - **多种 TTS 引擎**
   - `edge-tts`：微软在线 TTS，默认与兜底引擎（需联网）
   - `CosyVoice3`（0.5B，阿里开源）：本地零样本语音克隆，运行在独立 venv 的常驻 Worker 子进程
-- **视频合成**：MoviePy + 内置 FFmpeg，支持字幕、配音、进度回调
+- **视频合成**：MoviePy + FFmpeg（打包态自带，源码运行需单独安装或放到 `bin/`），支持字幕、配音、进度回调
 - **企业方案链接 → 智能体生成 Word → 复用文档转视频**（命令行入口）
-- **桌面启动器**：PyInstaller 打包为 exe / py2app 打包为 .app
+- **桌面启动器**：PyInstaller 打包为 Windows exe（含自带 FFmpeg 与 Python 运行时）
 
 ## 系统架构
 
@@ -41,7 +41,7 @@ TOOLBOX/
 ├── scripts/             # 辅助脚本
 ├── tests/               # 测试
 ├── static/index.html    # 前端页面
-├── config/              # .env.example / start.bat / TOOLBOX.spec / requirements.txt
+├── config/              # .env.example / start.bat / start.sh / requirements.txt
 ├── docs/                # README / BUILD / TESTING / 设计文档
 ├── deliverables/        # 交付文档
 ├── build_exes.py        # PyInstaller 打包入口
@@ -67,7 +67,7 @@ TOOLBOX/
 - **前端**：HTML5 / CSS3 / 原生 JavaScript（无框架）
 - **后端**：Python 3.13 + Flask + flask-cors
 - **TTS**：edge-tts、CosyVoice3（本地 GPU）
-- **媒体**：MoviePy、FFmpeg（内置）、PyAV、faster-whisper
+- **媒体**：MoviePy、FFmpeg、PyAV、faster-whisper
 - **文档**：PyMuPDF、python-docx、PowerPoint COM / LibreOffice
 
 ## 许可证
