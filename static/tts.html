@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TTS 音频生成 - 音视频工具</title>
+    <script>
+        (function () {
+            const key = 'toolbox-color-theme';
+            let saved = null;
+            try { saved = localStorage.getItem(key); } catch (e) {}
+            const preferred = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.dataset.theme = saved === 'dark' || saved === 'light' ? saved : preferred;
+        }());
+    </script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -396,6 +405,90 @@
         .nav-link:hover{color:var(--text,#1b2436)}
         .nav-link.active{background:var(--panel,#fff);color:var(--accent,#2b5cff);box-shadow:var(--shadow-sm,0 1px 2px rgba(15,20,25,.04))}
         @media (max-width:560px){.mainnav{flex-direction:column;align-items:stretch;gap:10px}.nav-links{justify-content:center}}
+
+        /* ===== 深色模式与主题开关 ===== */
+        html { color-scheme: light; }
+        html[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #090e1a;
+            --panel: #111827;
+            --soft: #182235;
+            --line: #28364d;
+            --text: #edf2ff;
+            --muted: #9ba9bf;
+            --accent: #7c9cff;
+            --accent-dark: #a9bcff;
+            --accent-soft: #1a2948;
+            --success: #4ade80;
+            --danger: #fb7185;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, .25);
+            --shadow: 0 12px 30px rgba(0, 0, 0, .22);
+        }
+        body {
+            background-image:
+                radial-gradient(circle at 92% 0%, rgba(43, 92, 255, .08), transparent 30rem),
+                radial-gradient(circle at 0% 100%, rgba(125, 92, 255, .05), transparent 34rem);
+            background-attachment: fixed;
+            transition: background-color .28s ease, color .28s ease;
+        }
+        html[data-theme="dark"] body {
+            background-image:
+                radial-gradient(circle at 92% 0%, rgba(124, 156, 255, .16), transparent 32rem),
+                radial-gradient(circle at 0% 100%, rgba(167, 139, 250, .1), transparent 36rem);
+        }
+        .theme-toggle {
+            position: relative; flex: 0 0 auto; width: 68px; height: 34px; padding: 0;
+            border: 1px solid var(--line); border-radius: 999px;
+            background: linear-gradient(135deg, #e6efff, #f8fbff); color: #49617f;
+            cursor: pointer; box-shadow: inset 0 1px 2px rgba(15,20,25,.08), 0 3px 10px rgba(43,92,255,.12);
+            transition: border-color .25s ease, background .25s ease, box-shadow .25s ease, transform .18s ease;
+        }
+        .theme-toggle::after {
+            content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px;
+            border-radius: 50%; background: #fff; box-shadow: 0 3px 8px rgba(25,40,68,.22);
+            transition: transform .3s cubic-bezier(.2,.8,.2,1), background .25s ease;
+        }
+        .theme-toggle:hover { transform: translateY(-1px); box-shadow: inset 0 1px 2px rgba(15,20,25,.08), 0 6px 16px rgba(43,92,255,.18); }
+        .theme-toggle:active { transform: translateY(0) scale(.97); }
+        .theme-toggle:focus-visible { outline: 3px solid rgba(124,156,255,.42); outline-offset: 3px; }
+        .theme-icon {
+            position: absolute; z-index: 1; top: 8px; width: 16px; height: 16px;
+            pointer-events: none; transition: color .25s ease, opacity .25s ease;
+        }
+        .theme-icon-sun { left: 8px; color: #f59e0b; }
+        .theme-icon-moon { right: 8px; color: #73839b; opacity: .7; }
+        html[data-theme="dark"] .theme-toggle {
+            border-color: #344561; background: linear-gradient(135deg, #111b30, #18243b);
+            box-shadow: inset 0 1px 2px rgba(0,0,0,.38), 0 4px 14px rgba(0,0,0,.28);
+        }
+        html[data-theme="dark"] .theme-toggle::after {
+            transform: translateX(34px); background: #243652; box-shadow: 0 3px 10px rgba(0,0,0,.45);
+        }
+        html[data-theme="dark"] .theme-icon-sun { color: #71809a; opacity: .65; }
+        html[data-theme="dark"] .theme-icon-moon { color: #dbe7ff; opacity: 1; }
+        .sr-only {
+            position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+            overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+        }
+        html[data-theme="dark"] .mainnav { background: rgba(17,24,39,.84); }
+        html[data-theme="dark"] :is(textarea.text-input, input.text-input, .voice-actions button, .voice-group, .voice-create) {
+            background: var(--panel); border-color: var(--line); color: var(--text);
+        }
+        html[data-theme="dark"] :is(.voice-item.unavailable, .voice-group-summary) { background: #141f31; border-color: var(--line); }
+        html[data-theme="dark"] .back-link:hover { background: #203257; }
+        html[data-theme="dark"] .dl-btn.secondary:hover { background: #22304a; }
+        html[data-theme="dark"] .error-box,
+        html[data-theme="dark"] .voice-actions button.del { background: #351a22; }
+        html[data-theme="dark"] .success-box { background: #123322; }
+        html[data-theme="dark"] .nav-link.active { box-shadow: 0 1px 5px rgba(0,0,0,.35); }
+        @media (max-width:560px) {
+            .mainnav { flex-direction: row; align-items: center; flex-wrap: wrap; }
+            .nav-links { order: 3; width: 100%; }
+            .theme-toggle { margin-left: auto; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            body, .theme-toggle, .theme-toggle::after, .theme-icon { transition: none; }
+        }
     </style>
 </head>
 <body>
@@ -406,6 +499,11 @@
                 <a class="nav-link" href="/">图片视频生成</a>
                 <a class="nav-link active" href="/tts" aria-current="page">TTS 语音合成</a>
             </div>
+            <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换到深色模式" aria-pressed="false" title="切换到深色模式">
+                <svg class="theme-icon theme-icon-sun" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
+                <svg class="theme-icon theme-icon-moon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5a8.5 8.5 0 1 0 12 12Z"/></svg>
+                <span class="sr-only">切换页面颜色主题</span>
+            </button>
         </nav>
         <header class="top">
             <h1>
@@ -533,6 +631,39 @@
     </main>
 
     <script>
+        (function () {
+            const key = 'toolbox-color-theme';
+            const root = document.documentElement;
+            const toggle = document.getElementById('themeToggle');
+            const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+            function syncToggle() {
+                const dark = root.dataset.theme === 'dark';
+                const nextLabel = dark ? '切换到浅色模式' : '切换到深色模式';
+                toggle.setAttribute('aria-pressed', String(dark));
+                toggle.setAttribute('aria-label', nextLabel);
+                toggle.title = nextLabel;
+            }
+
+            toggle.addEventListener('click', function () {
+                root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+                try { localStorage.setItem(key, root.dataset.theme); } catch (e) {}
+                syncToggle();
+            });
+
+            if (media) {
+                media.addEventListener('change', function (event) {
+                    let saved = null;
+                    try { saved = localStorage.getItem(key); } catch (e) {}
+                    if (!saved) {
+                        root.dataset.theme = event.matches ? 'dark' : 'light';
+                        syncToggle();
+                    }
+                });
+            }
+            syncToggle();
+        }());
+
         (function () {
             'use strict';
 

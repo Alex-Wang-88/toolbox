@@ -65,6 +65,12 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertIn("status.indeterminate", self.html)
         self.assertIn("async: true", self.html)
 
+    def test_color_theme_toggle_is_accessible_and_persistent(self):
+        self.assertIn('id="themeToggle"', self.html)
+        self.assertIn('aria-pressed="false"', self.html)
+        self.assertIn("toolbox-color-theme", self.html)
+        self.assertIn('data-theme="dark"', self.html)
+
 
 class TtsFrontendTests(unittest.TestCase):
     @classmethod
@@ -82,6 +88,12 @@ class TtsFrontendTests(unittest.TestCase):
         self.assertIn("录音逐字稿（选填）", self.html)
         self.assertIn("waitForQuickTask", self.html)
         self.assertIn("async: true", self.html)
+
+    def test_tts_page_uses_the_shared_color_theme_contract(self):
+        self.assertIn('id="themeToggle"', self.html)
+        self.assertIn('aria-pressed="false"', self.html)
+        self.assertIn("toolbox-color-theme", self.html)
+        self.assertIn('data-theme="dark"', self.html)
 
 
 class GenerateResolutionTests(unittest.TestCase):
