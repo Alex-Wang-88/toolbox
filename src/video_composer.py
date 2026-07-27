@@ -40,8 +40,8 @@ TRANSITION_FILTERS = {
 }
 
 # NVENC 预设
-NVENC_PRESET = os.getenv("TOOLBAX_NVENC_PRESET", "p1")
-NVENC_CQ = int(os.getenv("TOOLBAX_NVENC_CQ", "23"))
+NVENC_PRESET = os.getenv("TOOLBOX_NVENC_PRESET", "p1")
+NVENC_CQ = int(os.getenv("TOOLBOX_NVENC_CQ", "23"))
 
 # NVENC 可用性缓存
 _NVENC_AVAILABLE = None

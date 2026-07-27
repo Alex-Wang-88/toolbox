@@ -351,7 +351,7 @@ def run_video_generation(task_id, image_items, subtitle_mode, voice="default", m
         update_task_progress(task_id, 10, "准备生成环境...", stage="prepare", log=True)
 
         sys.path.insert(0, os.path.dirname(__file__))
-        import toolbax as pipeline
+        import TOOLBOX as pipeline
 
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
@@ -601,7 +601,7 @@ def get_config():
     }
     try:
         sys.path.insert(0, os.path.dirname(__file__))
-        import toolbax as pipeline
+        import TOOLBOX as pipeline
 
         config["gpu_accel"] = bool(pipeline.can_use_gpu_video())
         config["whisper_model"] = pipeline.WHISPER_MODEL_SIZE
@@ -699,7 +699,7 @@ def select_output_folder():
         selected = choose_output_folder(initial_dir)
         if selected:
             save_output_folder(selected)
-            os.environ["TOOLBAX_OUTPUT_FOLDER"] = selected
+            os.environ["TOOLBOX_OUTPUT_FOLDER"] = selected
         return jsonify({"success": True, "path": get_output_folder()})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -820,7 +820,7 @@ def _manuscript_generation_worker(task_id, image_items):
         tasks[task_id]["status"] = "processing"
         update_task_progress(task_id, 5, "准备图片与 AI 请求...", stage="prepare", log=True, indeterminate=False)
         sys.path.insert(0, os.path.dirname(__file__))
-        import toolbax as pipeline
+        import TOOLBOX as pipeline
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
 
@@ -904,7 +904,7 @@ def generate_manuscript():
 
     try:
         sys.path.insert(0, os.path.dirname(__file__))
-        import toolbax as pipeline
+        import TOOLBOX as pipeline
 
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
@@ -1166,7 +1166,7 @@ def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=
         tasks[task_id]["status"] = "processing"
         update_task_progress(task_id, 10, "准备语音引擎...", stage="prepare", log=True)
         sys.path.insert(0, os.path.dirname(__file__))
-        import toolbax as pipeline
+        import TOOLBOX as pipeline
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
 
@@ -1226,7 +1226,7 @@ def _batch_generate_worker(task_id, lines, voice, speed):
     """批量生成后台线程：逐行 batch_generate_tts -> 复制结果 -> manifest -> ZIP。"""
     generation_lock.acquire()
     try:
-        import toolbax as pipeline
+        import TOOLBOX as pipeline
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
 
@@ -1340,7 +1340,7 @@ def tts_quick():
         return jsonify({"task_id": task_id}), 202
 
     sys.path.insert(0, os.path.dirname(__file__))
-    import toolbax as pipeline
+    import TOOLBOX as pipeline
     pipeline.OUTPUT_FOLDER = get_output_folder()
     pipeline.init_output_folders()
 
@@ -1762,7 +1762,7 @@ atexit.register(_shutdown_worker_on_exit)
 
 if __name__ == "__main__":
     print("==========================================")
-    print("    toolbax - Web 服务")
+    print("    TOOLBOX - Web 服务")
     print("==========================================")
     print("访问地址: http://127.0.0.1:5000")
     print("按 Ctrl+C 停止服务")

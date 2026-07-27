@@ -1,5 +1,5 @@
 """
-toolbax 素材转讲解视频程序
+TOOLBOX 素材转讲解视频程序
 全流程：本地图片→自动上传图床→智能体生成话术→TTS转语音+字幕→合成视频
 
 API文档参考 api.md：
@@ -84,13 +84,13 @@ try:
     import pysrt
 except ImportError as exc:
     raise RuntimeError('缺少 pysrt 模块，请安装: pip install pysrt') from exc
-API_KEY = os.getenv('TOOLBAX_API_KEY', '')
-API_URL = os.getenv('TOOLBAX_API_URL', 'https://api.yunbloom.cn/v2/chat/completions/share?shareId=6gGPZIYSPHZ67fO8')
+API_KEY = os.getenv('TOOLBOX_API_KEY', '')
+API_URL = os.getenv('TOOLBOX_API_URL', 'https://api.yunbloom.cn/v2/chat/completions/share?shareId=6gGPZIYSPHZ67fO8')
 AUTO_CLEAN_EXPIRE = '24h'
 MAX_IMG_PER_BATCH = 10
 VOICE = 'zh-CN-XiaoxiaoNeural'
 TTS_SPEED = '+0%'
-OUTPUT_FOLDER = os.getenv('TOOLBAX_OUTPUT_FOLDER') or _DEFAULT_OUTPUT_FOLDER
+OUTPUT_FOLDER = os.getenv('TOOLBOX_OUTPUT_FOLDER') or _DEFAULT_OUTPUT_FOLDER
 TRANSITION_DURATION = 0.5
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080
@@ -131,9 +131,9 @@ def normalize_special_pronunciation(text: str) -> str:
         return text
     return _AI_TOKEN_RE.sub('A.I', text)
 USE_GPU_ACCEL = os.environ.get('APP_VARIANT', 'gpu') != 'cpu'
-WHISPER_MODEL_SIZE = os.getenv('TOOLBAX_WHISPER_MODEL', 'base')
-NVENC_PRESET = os.getenv('TOOLBAX_NVENC_PRESET', 'p1')
-NVENC_CQ = int(os.getenv('TOOLBAX_NVENC_CQ', '23'))
+WHISPER_MODEL_SIZE = os.getenv('TOOLBOX_WHISPER_MODEL', 'base')
+NVENC_PRESET = os.getenv('TOOLBOX_NVENC_PRESET', 'p1')
+NVENC_CQ = int(os.getenv('TOOLBOX_NVENC_CQ', '23'))
 
 def can_use_gpu_video() -> bool:
     """确认当前变体和 FFmpeg/NVIDIA 运行时都真正支持 NVENC。委托给 VideoComposer。"""
@@ -254,7 +254,7 @@ def upload_image_fallback(file_path: str) -> str:
             image = background
         else:
             image = image.convert('RGB')
-        temp_path = os.path.join(tempfile.gettempdir(), f'toolbax_{uuid.uuid4().hex}.jpg')
+        temp_path = os.path.join(tempfile.gettempdir(), f'TOOLBOX_{uuid.uuid4().hex}.jpg')
         try:
             image.save(temp_path, format='JPEG', quality=72, optimize=True)
             with open(temp_path, 'rb') as f:
@@ -307,7 +307,7 @@ def upload_single_image(file_path: str) -> Dict:
         print(f'[OK] 上传成功：{os.path.basename(file_path)} | 直链：{image_url}')
         return {'file_path': file_path, 'image_url': image_url, 'global_id': None}
     except Exception as e:
-        if os.getenv('TOOLBAX_ALLOW_BASE64', '').lower() not in ('1', 'true', 'yes'):
+        if os.getenv('TOOLBOX_ALLOW_BASE64', '').lower() not in ('1', 'true', 'yes'):
             print(f'[ERROR] 图床上传失败：{os.path.basename(file_path)} | 错误：{e}')
             return None
         print(f'[WARN] 图床上传失败，改用Base64图片：{os.path.basename(file_path)} | 错误：{e}')
@@ -387,7 +387,7 @@ retry_times: 失败重试次数（含首次）。网络异常或返回空响应�
 指数退避（1s/2s/...）。全部重试仍失败则抛出异常，由上层停止任务并上报错误，不再静默降级为占位话术。
 """
     if not API_KEY:
-        raise RuntimeError('未配置 TOOLBAX_API_KEY，无法调用 GPT5.6 生成文案。请在 .env 中填写 API_KEY 后重试。')
+        raise RuntimeError('未配置 TOOLBOX_API_KEY，无法调用 GPT5.6 生成文案。请在 .env 中填写 API_KEY 后重试。')
     headers = {'Authorization': API_KEY, 'Content-Type': 'application/json', 'Accept': 'text/event-stream'}
     messages = build_api_messages(batch, batch_index=batch_index, batch_count=batch_count)
     session_id = session_id or str(uuid.uuid4())
@@ -783,8 +783,8 @@ def synthesize_with_windows_sapi(text: str, audio_path: str, speech_rate: str='n
         raise RuntimeError('Windows 本地语音仅支持 Windows 平台')
     temp_dir = tempfile.gettempdir()
     temp_id = uuid.uuid4().hex
-    wav_path = os.path.join(temp_dir, f'toolbax_{temp_id}.wav')
-    text_path = os.path.join(temp_dir, f'toolbax_{temp_id}.txt')
+    wav_path = os.path.join(temp_dir, f'TOOLBOX_{temp_id}.wav')
+    text_path = os.path.join(temp_dir, f'TOOLBOX_{temp_id}.txt')
     try:
         with open(text_path, 'w', encoding='utf-8') as f:
             f.write(normalize_special_pronunciation(text))
@@ -1398,7 +1398,7 @@ def get_image_files(input_folder: str) -> List[str]:
 
 def main():
     print('=' * 50)
-    print('    toolbax v3.1')
+    print('    TOOLBOX v3.1')
     print('=' * 50 + '\n')
     input_folder = input('图片文件夹路径（直接回车=images）：').strip()
     if not input_folder:

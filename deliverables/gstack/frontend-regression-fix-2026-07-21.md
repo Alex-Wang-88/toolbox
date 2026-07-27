@@ -33,7 +33,7 @@
 ## 1. 各成员核心结论
 
 ### 🔧 排障手（调查员 / gstack-investigator）
-- 核心判断：三项问题**均非** 07-21 按钮修复（F1–F6）引入的回归。JSON 问题是 `src/toolbax.py` `parse_agent_response` 在 AI 返回畸形/非 JSON 时把**整段原始响应**当话术塞入（07-20 既存）；缩略图是 `object-fit: cover` 裁切的既有 CSS 缺陷；拆分按钮是能力存在但从未作为独立按钮暴露。
+- 核心判断：三项问题**均非** 07-21 按钮修复（F1–F6）引入的回归。JSON 问题是 `src/TOOLBOX.py` `parse_agent_response` 在 AI 返回畸形/非 JSON 时把**整段原始响应**当话术塞入（07-20 既存）；缩略图是 `object-fit: cover` 裁切的既有 CSS 缺陷；拆分按钮是能力存在但从未作为独立按钮暴露。
 - 关键建议：前端加 `normalizeSpeechText` 防护 + 后端兜底守卫双管齐下；恢复独立拆分按钮复用 `uploadMaterials`+`buildPreparedImages`。已落地并自测（node --check / py_compile 通过，畸形 JSON 仿真不再泄漏）。
 
 ### 🎨 设计师（gstack-designer）
@@ -54,7 +54,7 @@
 
 | # | 严重度 | 类别 | 位置 | 问题描述 | 建议 | 来源成员 |
 |---|--------|------|------|---------|------|---------|
-| F1 | 🟡 | 功能/健壮性 | src/toolbax.py:549-552 + static/index.html:1391/2173-2188 | 生成文稿后 textarea 显示原始 JSON（畸形 AI 输出被当话术） | 前端 normalizeSpeechText 防护 + 后端兜底守卫跳过原始包络 | 排障手 + 产品官 |
+| F1 | 🟡 | 功能/健壮性 | src/TOOLBOX.py:549-552 + static/index.html:1391/2173-2188 | 生成文稿后 textarea 显示原始 JSON（畸形 AI 输出被当话术） | 前端 normalizeSpeechText 防护 + 后端兜底守卫跳过原始包络 | 排障手 + 产品官 |
 | F2 | 🟡 | 视觉/CSS | static/index.html:205, 425 | 缩略图被 `object-fit: cover` 裁切只显示局部 | 改为 `object-fit: contain`（thumb + ms-thumb）| 设计师 |
 | F3 | 🟡 | 功能/UX | static/index.html:608/723/1410-1437/1896 | “拆分”按钮缺失，拆分合并进“生成文稿” | 恢复独立「拆分素材」按钮 + splitMaterials()（不调 AI）| 排障手 |
 | F4 | 🟢 | 健壮性/UX | static/index.html:1420, 1897 | 上传空白/不支持素材时 isPrepared 被无条件置真 → 三按钮同禁用（软锁死）| 仅当 preparedImages>0 才置 isPrepared；clearBtn 在 isPrepared 时始终可用 | 产品官（评审发现）+ 主理人修复 |
@@ -75,7 +75,7 @@
 
 ## ⚠️ 待完善 / 已知局限
 
-- 项目**无 git 仓库**，无法提供 diff/历史；本报告基于当前文件状态（mtime：index.html / web_server.py 2026-07-21，toolbax.py 2020-07-20 解析逻辑未动，仅 07-21 加守卫）。
+- 项目**无 git 仓库**，无法提供 diff/历史；本报告基于当前文件状态（mtime：index.html / web_server.py 2026-07-21，TOOLBOX.py 2020-07-20 解析逻辑未动，仅 07-21 加守卫）。
 - 浏览器缓存：若用户曾缓存旧版 index.html，需硬刷新（清缓存）才能看到新按钮/CSS；前端防护已彻底杜绝 JSON 进 textarea 的现象。
 - 软锁死修复（F4）未单独写自动化测试，已通过代码评审与逻辑推演确认；建议后续补一个“空素材拆分”的边界用例。
 
@@ -83,7 +83,7 @@
 
 ## 📚 成员产出索引
 
-- gstack-investigator（排障手）原始产出：JSON 解析根因 + 拆分按钮缺失根因 + 三处改动落地（normalizeSpeechText、splitMaterials、toolbax.py 守卫）+ 自测（node --check / py_compile / 畸形 JSON 仿真）。
+- gstack-investigator（排障手）原始产出：JSON 解析根因 + 拆分按钮缺失根因 + 三处改动落地（normalizeSpeechText、splitMaterials、TOOLBOX.py 守卫）+ 自测（node --check / py_compile / 畸形 JSON 仿真）。
 - gstack-designer（设计师）原始产出：缩略图 `object-fit: cover → contain` 根因与最小 CSS 修复建议（index.html:205、425）。
 - gstack-product-reviewer（产品官）原始产出：代码评审报告（GO，含 F4 软锁死隐患与 2 条边界随访）。
 - gstack-qa-lead（质量门神）原始产出：实测验证三项 PASS（拆分按钮存在、CSS contain、JSON 守卫畸形/合法双路径）。

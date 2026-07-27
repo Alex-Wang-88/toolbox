@@ -1,4 +1,4 @@
-# toolbax 上线前全检报告（代码审查 + 安全审计 + QA 测试）
+# TOOLBOX 上线前全检报告（代码审查 + 安全审计 + QA 测试）
 
 **日期**：2026-07-18
 **场景**：上线前检查（Pre-launch Check）
@@ -50,17 +50,17 @@
 
 | # | 严重度 | 类别 | 位置 | 问题描述 | 建议 | 来源成员 |
 |---|--------|------|------|---------|------|---------|
-| B2 | 🔴 | 功能缺陷 | `src/toolbax.py` `_sync_last_segments_from_audio_info()`（~L1369）/ `generate_srt_subtitle()`（~L1433） | 默认 Edge 音色路径下重建的 `SegmentData` 未设置 `subtitle_text`（默认 `""`），`generate_srt_subtitle` 又因 `_last_all_segments` 为真走 CosyVoice3 分支，生成**空白字幕条目**。结果最常见的默认音色视频有配音但字幕全空。 | 在 `_sync_last_segments_from_audio_info` 中为每个 seg 赋值 `seg.subtitle_text = audio_info.get("text","")`；并补覆盖默认音色字幕非空的测试。 | 产品官 |
+| B2 | 🔴 | 功能缺陷 | `src/TOOLBOX.py` `_sync_last_segments_from_audio_info()`（~L1369）/ `generate_srt_subtitle()`（~L1433） | 默认 Edge 音色路径下重建的 `SegmentData` 未设置 `subtitle_text`（默认 `""`），`generate_srt_subtitle` 又因 `_last_all_segments` 为真走 CosyVoice3 分支，生成**空白字幕条目**。结果最常见的默认音色视频有配音但字幕全空。 | 在 `_sync_last_segments_from_audio_info` 中为每个 seg 赋值 `seg.subtitle_text = audio_info.get("text","")`；并补覆盖默认音色字幕非空的测试。 | 产品官 |
 
 ### 🟠 高危（5，均为阻塞）
 
 | # | 严重度 | 类别 | 位置 | 问题描述 | 建议 | 来源成员 |
 |---|--------|------|------|---------|------|---------|
-| B3 | 🟠 | 密钥管理 | `.env`（L1/L4，base64 明文）/ `src/toolbax.py:39` `load_env_file` / `:105` | 运行时**必须**有 `TOOLBAX_API_KEY`，且从 exe 同目录读 `.env` → 发布包必须随附含真实 Key 的 `.env`，任何人可提取盗用后端额度。 | 不要把生产 Key 打进发布包；改用户自填 / 自有后端代理转发 / 显式声明为共享公开配额并加速率限制与一键吊销；云端轮换现有 Key。 | 安全卫士 + 产品官 |
-| B4 | 🟠 | 隐私/合规 | `src/toolbax.py:299` `upload_to_litterbox` / `:411` `upload_single_image`（base64 兜底默认禁用） | 默认把每张用户图片 POST 到公开第三方托管（catbox.moe 永久存储 + uguu.se），URL 再发给外部 LLM。用户敏感图片在无感知、无同意下离开本机并公开可访问。 | 默认本地处理（开启 base64/本地图床优先）；第三方上传改显式 opt-in，UI 明确告知并取同意；若必须上传用可过期/私有托管。 | 安全卫士 + 产品官 |
+| B3 | 🟠 | 密钥管理 | `.env`（L1/L4，base64 明文）/ `src/TOOLBOX.py:39` `load_env_file` / `:105` | 运行时**必须**有 `TOOLBOX_API_KEY`，且从 exe 同目录读 `.env` → 发布包必须随附含真实 Key 的 `.env`，任何人可提取盗用后端额度。 | 不要把生产 Key 打进发布包；改用户自填 / 自有后端代理转发 / 显式声明为共享公开配额并加速率限制与一键吊销；云端轮换现有 Key。 | 安全卫士 + 产品官 |
+| B4 | 🟠 | 隐私/合规 | `src/TOOLBOX.py:299` `upload_to_litterbox` / `:411` `upload_single_image`（base64 兜底默认禁用） | 默认把每张用户图片 POST 到公开第三方托管（catbox.moe 永久存储 + uguu.se），URL 再发给外部 LLM。用户敏感图片在无感知、无同意下离开本机并公开可访问。 | 默认本地处理（开启 base64/本地图床优先）；第三方上传改显式 opt-in，UI 明确告知并取同意；若必须上传用可过期/私有托管。 | 安全卫士 + 产品官 |
 | B5 | 🟠 | 不安全设计 | `src/document_converter.py:184-286`（PPT COM / LibreOffice）/ `:144` fitz / `:128` python-docx；入口 `web_server.py:427` | 用户上传的 PPTX/Word/PDF 直接交 LibreOffice/PowerPoint/fitz 解析转图，无大小/页数/解压比上限、无沙箱、无超时。恶意/超大文件可触发解析器 RCE 或 zip 炸弹 DoS。 | 处理前做大小/页数/解压比上限与超时；在受限账户/沙箱（低特权、受限文件系统）下运行转换子进程；显式用禁用外部实体的安全 XML 解析器。 | 安全卫士 |
 | B6 | 🟠 | 资源泄漏 | `src/web_server.py:1321` `_shutdown_worker_on_exit`（空 no-op）/ `multi_tts_voice.py` 无 atexit `shutdown_all` | CosyVoice3 Worker 常驻显存，正常退出（`os._exit(0)`）不发 shutdown，atexit 为空操作。Windows 下子进程不随父进程终止 → 孤儿进程持续占 GPU 显存，重开后易 OOM。 | `web_server` 在 atexit 调 `MultiTtsWorkerClient.shutdown_all()`（释放模型 + `empty_cache` + `os._exit`）；对 Worker 子进程注册 OS 级回收（`taskkill /T`）。 | 产品官 |
-| B7 | 🟠 | 正确性 | `src/web_server.py` `generate_video_task()`（~L677，无并发上限）/ `src/toolbax.py` 固定路径 `subtitle/full_subtitle.srt` + 全局 `_last_all_segments`/`batches` | 用户连点两次「生成」会并发跑两个任务，共用固定文件名 SRT 与 `audio/` 目录并读写模块级全局 → 字幕/配音时间轴错乱甚至写入对方音频。 | 全局串行化生成（`threading.Semaphore(1)` 或「同一时刻仅一个 processing 任务」校验）；或每任务独立临时输出目录。 | 产品官 |
+| B7 | 🟠 | 正确性 | `src/web_server.py` `generate_video_task()`（~L677，无并发上限）/ `src/TOOLBOX.py` 固定路径 `subtitle/full_subtitle.srt` + 全局 `_last_all_segments`/`batches` | 用户连点两次「生成」会并发跑两个任务，共用固定文件名 SRT 与 `audio/` 目录并读写模块级全局 → 字幕/配音时间轴错乱甚至写入对方音频。 | 全局串行化生成（`threading.Semaphore(1)` 或「同一时刻仅一个 processing 任务」校验）；或每任务独立临时输出目录。 | 产品官 |
 
 ### 🟡 中危（15）
 
@@ -87,13 +87,13 @@
 | # | 严重度 | 类别 | 位置 | 问题描述 | 建议 | 来源成员 |
 |---|--------|------|------|---------|------|---------|
 | L1 | 🟢 | 安全头 | `web_server.py` 各响应 | 缺 CSP / X-Content-Type-Options / X-Frame-Options。 | 统一加 `nosniff`、`X-Frame-Options: DENY`、预览页 CSP。 | 安全卫士 |
-| L2 | 🟢 | 密钥隔离 | `toolbax.py:79` → 子进程继承完整环境（含 Key） | API Key 经环境被子进程（ffmpeg 等）继承。 | 构造子进程时传精简 env（剔除密钥），仅调用前临时注入。 | 安全卫士 |
+| L2 | 🟢 | 密钥隔离 | `TOOLBOX.py:79` → 子进程继承完整环境（含 Key） | API Key 经环境被子进程（ffmpeg 等）继承。 | 构造子进程时传精简 env（剔除密钥），仅调用前临时注入。 | 安全卫士 |
 | L3 | 🟢 | 纵深防御 | `web_server.py:116/184/234` 输出根/文件名 | 输出根来自本地 JSON、sanitize 未去前导点/保留名，属穿越防御缺口。 | 输出根白名单/绝对路径校验；文件名清洗加去前导点、Windows 保留名。 | 安全卫士 |
-| L4 | 🟢 | 日志 | `toolbax.py:561/603` 打印原始话术前 500 字 | 调试日志过详（含完整话术/文件名）。 | 生产构建关闭 debug print；敏感字段不落日志。 | 安全卫士 |
+| L4 | 🟢 | 日志 | `TOOLBOX.py:561/603` 打印原始话术前 500 字 | 调试日志过详（含完整话术/文件名）。 | 生产构建关闭 debug print；敏感字段不落日志。 | 安全卫士 |
 | L5 | 🟢 | 完整性 | `tts_workers/cosyvoice3_worker.py:46` `sys.path.insert(0, COSYVOICE_DIR)` | 第三方引擎/权重无签名校验，目录被篡改可代码执行。 | 发布期哈希/签名校验；避免 `insert(0,...)` 不可信路径。 | 安全卫士 |
-| L6 | 🟢 | 可维护性 | `toolbax.py:250` 导入期 `subprocess.Popen = silent_popen` 全局替换 | 影响整个进程（含其他库）的 Popen，脆弱副作用。 | 改在调用处用 `silent_subprocess_kwargs()`。 | 产品官 |
+| L6 | 🟢 | 可维护性 | `TOOLBOX.py:250` 导入期 `subprocess.Popen = silent_popen` 全局替换 | 影响整个进程（含其他库）的 Popen，脆弱副作用。 | 改在调用处用 `silent_subprocess_kwargs()`。 | 产品官 |
 | L7 | 🟢 | 发布 | `build_exes.py:17` 引用缺失的 `config/AI图片讲解视频生成器.spec` | 文档化构建流程跑不通。 | 补回 spec 并纳入仓库。 | 产品官 |
-| L8 | 🟢 | 健壮性 | `toolbax.py:556` SSE 整响应读入内存 | 异常大响应吃内存。 | 分块上限或流式边收边解析。 | 产品官 |
+| L8 | 🟢 | 健壮性 | `TOOLBOX.py:556` SSE 整响应读入内存 | 异常大响应吃内存。 | 分块上限或流式边收边解析。 | 产品官 |
 | L9 | 🟢 | 一致性 | `web_server.py` CORS 硬编码 5000，launcher 可能用 5001+ | 大端口下前端硬编码 API host 可能异常。 | CORS/前端动态读取实际端口。 | 产品官 |
 | L10 | 🟢 | 竞态 | `web_server.py:768` `/api/cleanup` 直接 rmtree | 会删除进行中任务的输入文件。 | 清理前校验无 processing 任务，或仅清孤儿文件。 | 产品官 |
 | L11 | 🟢 | 文档 | `tts_page_delivery_20260718.md` 等 | 文档称 `check_dependency()` 恒返回 False 为「关键 bug」，当前代码已修复为真实探测；音色清单也与现状不符，易误导。 | 更新交付文档，标注 blocker 已修复并同步当前状态。 | 质量门神 |
@@ -164,7 +164,7 @@
 
 | 编号 | 修复内容 | 文件 | 验证 |
 |------|---------|------|------|
-| B2 | `_sync_last_segments_from_audio_info` 为每段 seg 赋值 `subtitle_text`，消除默认 Edge 音色字幕全空 | `src/toolbax.py` | ✅ 单元测试 `test_default_voice_subtitle_text_is_set` 通过 |
+| B2 | `_sync_last_segments_from_audio_info` 为每段 seg 赋值 `subtitle_text`，消除默认 Edge 音色字幕全空 | `src/TOOLBOX.py` | ✅ 单元测试 `test_default_voice_subtitle_text_is_set` 通过 |
 | B6 | `_shutdown_worker_on_exit` 调用 `MultiTtsWorkerClient.shutdown_all()`（内部发 CMD_SHUTDOWN + `taskkill /F /T`），atexit 时回收 CosyVoice3 Worker 释放显存 | `src/web_server.py` | ⚠️ 编译通过 + 代码审查；建议补一次 Windows 退出回收烟测 |
 | B7 | 新增模块级 `generation_lock`，串行化 `/api/generate`、`/api/tts/quick`(with_video)、批量生成三条写入 `_last_all_segments`/固定 SRT 的路径，消除并发污染 | `src/web_server.py` | ⚠️ 编译通过 + 代码审查；建议补一次连点两次「生成」烟测 |
 | B5 | 不可信文档轻量防护：文件 200MB / 页数 500 / zip 解压 2GB+单条目比例 100 上限；PowerPoint COM `DisplayAlerts=0` 防卡死；soffice 已有 120s 超时 | `src/document_converter.py` | ⚠️ 编译通过 + 代码审查 |

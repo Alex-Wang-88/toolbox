@@ -20,9 +20,9 @@ class TestLocalParallelDeprecated(unittest.TestCase):
     def test_local_parallel_raises_runtime_error(self):
         """_tts_local_parallel 已废弃，调用应抛 RuntimeError。"""
         try:
-            import toolbax as itv
+            import TOOLBOX as itv
         except Exception as e:
-            self.skipTest(f"toolbax 无法导入：{e}")
+            self.skipTest(f"TOOLBOX 无法导入：{e}")
             return
 
         with self.assertRaises(RuntimeError) as ctx:

@@ -1,7 +1,7 @@
-# toolbax 项目梳理与 TTS 独立页面交付记录
+# TOOLBOX 项目梳理与 TTS 独立页面交付记录
 
 > 任务时间：2026-07-18 00:00 ~ 00:50
-> 目标：① 在 toolbax 项目里新增一个独立 TTS 页面（选音色 + 输入文字 + 生成音频）；② 顺手核对清理所有非 CosyVoice3 的 TTS 模型残留。
+> 目标：① 在 TOOLBOX 项目里新增一个独立 TTS 页面（选音色 + 输入文字 + 生成音频）；② 顺手核对清理所有非 CosyVoice3 的 TTS 模型残留。
 
 ---
 
@@ -33,7 +33,7 @@ def tts_page():
 ## 二、项目结构核对（完整目录树）
 
 ```
-toolbax/
+TOOLBOX/
 ├── .venv/                      # Python 虚拟环境
 ├── app_data/                   # 运行时数据（voices.json、tts_cache、temp_uploads 等）
 ├── audio_assets/               # 音色素材库
@@ -58,13 +58,13 @@ toolbax/
 │   ├── plan.md
 │   └── archive/                # 4 份历史设计文档
 ├── legacy/
-│   └── toolbax_web.py   # 旧版单文件实现（GB 编码乱码，已废弃）
+│   └── TOOLBOX_web.py   # 旧版单文件实现（GB 编码乱码，已废弃）
 ├── output/                     # 运行时生成
 ├── scripts/                    # 空目录
 ├── src/                        # 核心代码
 │   ├── web_server.py           # Flask Web 服务（5000 端口，主入口）
 │   ├── app_launcher.py         # 桌面启动器
-│   ├── toolbax.py       # 主流程：图片→解说→TTS→字幕→视频
+│   ├── TOOLBOX.py       # 主流程：图片→解说→TTS→字幕→视频
 │   ├── document_converter.py
 │   ├── hardware_profile.py
 │   ├── enterprise_solution_to_video.py
@@ -119,14 +119,14 @@ toolbax/
 | `src/tts_workers/` | 只剩 `cosyvoice3_worker.py`，无 `index_tts2_worker.py` |
 | `src/voice_registry.py` | 白名单 `ALLOWED_VOICE_TYPES = {"cloud_parallel", "cosyvoice3"}`，读取时自动 purge 旧版（`xtts_clone` 等）并备份为 `voices.json.bak` |
 | `src/multi_tts_voice.py` | 仅支持 CosyVoice3；`resolve_cosyvoice3_python` 解析到 `tts_poc/venv_cosyvoice` |
-| `src/toolbax.py` | `batch_generate_tts` 主链路只调 Edge TTS（default）或 CosyVoice3 本地克隆 |
+| `src/TOOLBOX.py` | `batch_generate_tts` 主链路只调 Edge TTS（default）或 CosyVoice3 本地克隆 |
 | `src/gpu_setup.py` | `check_dependency()` 已改为始终返回 `(False, None)`，保留函数只为兼容调用方 |
 | `src/gpu_arbiter.py` | 跨进程锁，无 TTS 引擎耦合 |
 | `src/web_server.py` | 无任何 `indextts`/`index_tts2`/`modal`/`gpt_sovits` 字样 |
 | `tts_poc/models/` | 只剩 `CosyVoice3-0.5B/`（约 6.5 GB） |
 | 项目根目录 | 无 `indextts2_weights/` 或 `indextts2_env/` 目录 |
 | `docs/` | 全文检索无 IndexTTS2 引用 |
-| `legacy/toolbax_web.py` | 旧单文件版本，与 IndexTTS2 无关 |
+| `legacy/TOOLBOX_web.py` | 旧单文件版本，与 IndexTTS2 无关 |
 
 ### 残留清理建议（非阻塞，可按需处理）
 
@@ -140,7 +140,7 @@ toolbax/
 | `_last_clone_id.txt` | 内容 `clone_5a18d798`（旧 XTTS 克隆 ID，已不在 voices.json） | 可删 |
 | `_speech_v2.json` | 省人才集团解说词（旧脚本产物） | 可删或移到 `test_inputs/` |
 | `audio_assets/音色清单.md` | 仍是 XTTS 时代写法（提到 XTTS warmup、22050Hz 单声道 16bit） | 建议重写为 CosyVoice3 版本（见下文） |
-| `legacy/toolbax_web.py` | GB 编码乱码的旧版单文件 | 已有 `src/` 新版，可删除整个 `legacy/` |
+| `legacy/TOOLBOX_web.py` | GB 编码乱码的旧版单文件 | 已有 `src/` 新版，可删除整个 `legacy/` |
 
 ### `voice_registry.py` 中保留的兼容字段
 - `sovits_lora: str = ""` 仍在 `Voice` dataclass 里，注释为"已弃用字段（空=自动）"。
@@ -192,7 +192,7 @@ toolbax/
 1. **修复 `gpu_setup.check_dependency()`**：改为真正探测 `tts_poc/venv_cosyvoice` 和 `tts_poc/models/CosyVoice3-0.5B` 是否就绪，而非始终返回 `False`。这是让独立 TTS 页面能用 CosyVoice3 音色的前提。
 2. **重写 `audio_assets/音色清单.md`**：更新为 CosyVoice3 时代的格式说明（参考音频要求、warmup 流程）。
 3. **清理根目录**：把 3 个旧迁移报告移到 `docs/archive/`，删除 `_last_clone_id.txt` 和 `_speech_v2.json`。
-4. **删除 `legacy/toolbax_web.py`**：已有 `src/` 新版，旧版无引用。
+4. **删除 `legacy/TOOLBOX_web.py`**：已有 `src/` 新版，旧版无引用。
 5. **tts.html 增强**：可加"下载文件名自定义"、"批量文本（每行一段）生成"、"音色试听"等功能。
 6. **路由暴露**：可在 `index.html` 主页加一个"TTS 工具"入口链接到 `/tts`，目前只能手动访问 URL。
 

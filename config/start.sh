@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# toolbax 启动脚本（Linux / macOS）
+# TOOLBOX 启动脚本（Linux / macOS）
 # 等价于 Windows 的 config/start.bat：虚拟环境自愈 + 依赖安装 + 启动 Web 服务。
 # 用法：  bash config/start.sh   或   chmod +x config/start.sh && ./config/start.sh
 set -euo pipefail
@@ -11,7 +11,7 @@ VENV_DIR="$PROJECT_ROOT/.venv"
 PYVENV_CFG="$VENV_DIR/pyvenv.cfg"
 
 echo "=========================================="
-echo "    toolbax - 启动服务 (Linux/macOS)"
+echo "    TOOLBOX - 启动服务 (Linux/macOS)"
 echo "=========================================="
 echo
 

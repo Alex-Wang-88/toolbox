@@ -9,7 +9,7 @@ import sys
 
 
 from paths import PROJECT_ROOT
-RESULT_PREFIX = "TOOLBAX_TRANSCRIPT_JSON="
+RESULT_PREFIX = "TOOLBOX_TRANSCRIPT_JSON="
 
 
 def _hidden_process_kwargs():
@@ -25,7 +25,7 @@ def _hidden_process_kwargs():
 def resolve_transcriber_python():
     """Find an existing Python environment that already has faster-whisper."""
     candidates = [
-        os.getenv("TOOLBAX_TRANSCRIBE_PYTHON", ""),
+        os.getenv("TOOLBOX_TRANSCRIBE_PYTHON", ""),
         sys.executable,
         os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe"),
         os.path.join(PROJECT_ROOT, ".venv", "bin", "python"),
@@ -54,7 +54,7 @@ def resolve_transcriber_python():
 
 def resolve_whisper_model():
     candidates = [
-        os.getenv("TOOLBAX_WHISPER_MODEL_PATH", ""),
+        os.getenv("TOOLBOX_WHISPER_MODEL_PATH", ""),
         os.path.join(PROJECT_ROOT, "models", "whisper_base"),
         os.path.join(PROJECT_ROOT, "test_inputs", "whisper_base"),
         os.path.join(getattr(sys, "_MEIPASS", ""), "models", "whisper_base") if getattr(sys, "frozen", False) else "",

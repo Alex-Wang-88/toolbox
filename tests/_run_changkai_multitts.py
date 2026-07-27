@@ -5,7 +5,7 @@
 与原多引擎 pipeline 脚本同思路，但：
 - 单引擎模式：只跑 CosyVoice3（零样本克隆，复用 venv_cosyvoice）
 - 解说词（speech_dict）只生成一次并落盘复用
-- 成片直接落到 toolbax/output/，命名 {主题}_{音色}_{模型}_{YYYYMMDD}.mp4
+- 成片直接落到 TOOLBOX/output/，命名 {主题}_{音色}_{模型}_{YYYYMMDD}.mp4
 
 用法（主 venv，Python 3.13）：
     python _run_changkai_multitts.py
@@ -52,7 +52,7 @@ _load_env(Path(ROOT) / ".env")
 
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-import toolbax as pipeline
+import TOOLBOX as pipeline
 import document_converter
 from voice_registry import VoiceRegistry
 from multi_tts_voice import MultiTtsWorkerClient

@@ -2,7 +2,7 @@
 """
 端到端语音流水线测试（QA 驱动脚本，不改动业务代码）
 
-对 toolbax「图片转视频」主流水线做一次完整端到端验证：
+对 TOOLBOX「图片转视频」主流水线做一次完整端到端验证：
 - 运行 A：edgeTTS 默认音色（zh-CN-XiaoxiaoNeural）
 - 运行 B：常凯申 CosyVoice3 克隆音色
 
@@ -55,7 +55,7 @@ _load_env(Path(ROOT) / ".env")
 
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-import toolbax as pipeline
+import TOOLBOX as pipeline
 import document_converter
 from voice_registry import VoiceRegistry
 from multi_tts_voice import MultiTtsWorkerClient
@@ -77,9 +77,9 @@ edge_tts.Communicate.__init__ = _patched_comm_init
 # ── 路径常量 ──
 REF_CLIP = os.path.join(ROOT, "test_inputs", "voice_changkai_clip8s.wav")
 REF_TEXT_FILE = os.path.join(ROOT, "test_inputs", "ref_text_changkai.txt")
-# 测试用 PDF 源文件：默认在项目内 test_inputs/ 下；可用环境变量 TOOLBAX_TEST_PDF 覆盖
+# 测试用 PDF 源文件：默认在项目内 test_inputs/ 下；可用环境变量 TOOLBOX_TEST_PDF 覆盖
 # （原路径为开发者本机绝对路径，已改为相对/可配置，避免泄露与跨机失效）
-PDF_PATH = os.environ.get("TOOLBAX_TEST_PDF") or os.path.join(ROOT, "test_inputs", "e2e_source.pdf")
+PDF_PATH = os.environ.get("TOOLBOX_TEST_PDF") or os.path.join(ROOT, "test_inputs", "e2e_source.pdf")
 DATA_ROOT = os.path.join(ROOT, "app_data")
 OUTPUT_DIR = os.path.join(ROOT, "output")
 DATE_TAG = time.strftime("%Y%m%d")

@@ -32,6 +32,9 @@ release/
 .DS_Store
 Thumbs.db
 
+# 临时运行产物目录（音视频、slides 等）
+.tmp/
+
 # 日志和临时文件
 *.log
 server_verify.out.log

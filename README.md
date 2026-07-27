@@ -1,4 +1,4 @@
-# toolbax
+# TOOLBOX
 
 > 基于 Web 的「素材转讲解视频」工具：接收图片、PDF、PPT/PPTX、Word 等素材，自动生成带 AI 讲解语音与字幕的视频，并提供本地 GPU 语音克隆能力。
 
@@ -36,12 +36,12 @@
 ## 目录结构（纳入版本控制部分）
 
 ```
-toolbax/
+TOOLBOX/
 ├── src/                 # 源代码（web_server / 视频生成 / TTS Worker / 文档转换 等）
 ├── scripts/             # 辅助脚本
 ├── tests/               # 测试
 ├── static/index.html    # 前端页面
-├── config/              # .env.example / start.bat / toolbax.spec / requirements.txt
+├── config/              # .env.example / start.bat / TOOLBOX.spec / requirements.txt
 ├── docs/                # README / BUILD / TESTING / 设计文档
 ├── deliverables/        # 交付文档
 ├── build_exes.py        # PyInstaller 打包入口
@@ -57,10 +57,10 @@ toolbax/
 
 | 变量 | 说明 |
 |---|---|
-| `TOOLBAX_API_KEY` / `TOOLBAX_API_URL` | AI 话术 API（未设置则用兜底话术） |
+| `TOOLBOX_API_KEY` / `TOOLBOX_API_URL` | AI 话术 API（未设置则用兜底话术） |
 | `SOLUTION_AGENT_API_KEY` / `SOLUTION_AGENT_API_URL` | 企业方案智能体 |
 | `APP_VARIANT` | `gpu` / `cpu`，主流程是否启用 GPU |
-| `TOOLBAX_OUTPUT_FOLDER` | 输出目录（默认 `output`） |
+| `TOOLBOX_OUTPUT_FOLDER` | 输出目录（默认 `output`） |
 
 ## 技术栈
 

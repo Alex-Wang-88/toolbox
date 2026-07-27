@@ -9,7 +9,7 @@ set "VENV_DIR=%PROJECT_ROOT%\.venv"
 set "PYVENV_CFG=%VENV_DIR%\pyvenv.cfg"
 
 echo ==========================================
-echo     toolbax - 启动服务
+echo     TOOLBOX - 启动服务
 echo ==========================================
 echo.
 

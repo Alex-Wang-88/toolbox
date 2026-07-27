@@ -6,7 +6,7 @@
 
 ```powershell
 python -m pip install -r config/requirements.txt
-python -m py_compile src/toolbax.py src/web_server.py src/app_launcher.py src/document_converter.py src/hardware_profile.py
+python -m py_compile src/TOOLBOX.py src/web_server.py src/app_launcher.py src/document_converter.py src/hardware_profile.py
 ffmpeg -version
 ffprobe -version
 ```
@@ -29,11 +29,11 @@ winget install ffmpeg
 正式生成视频前，设置 API Key：
 
 ```powershell
-$env:TOOLBAX_API_KEY="你的 API Key"
-$env:TOOLBAX_API_URL="你的 API URL"
+$env:TOOLBOX_API_KEY="你的 API Key"
+$env:TOOLBOX_API_URL="你的 API URL"
 ```
 
-如果不设置 `TOOLBAX_API_KEY`，程序会走兜底话术，适合验证 TTS 和合成链路，但不会生成真实 AI 讲解内容。
+如果不设置 `TOOLBOX_API_KEY`，程序会走兜底话术，适合验证 TTS 和合成链路，但不会生成真实 AI 讲解内容。
 
 ## 3. 启动服务
 
@@ -156,18 +156,18 @@ print(estimate_label(estimate_seconds(4, "all", profile)))
 ## 12. EXE 冒烟测试
 
 ```powershell
-python -m PyInstaller --noconfirm --clean --windowed --name "toolbax" --add-data "static/index.html;static" --hidden-import toolbax --hidden-import hardware_profile --hidden-import document_converter --hidden-import edge_tts --hidden-import pysrt --hidden-import requests --hidden-import win32com --hidden-import win32com.client --collect-all moviepy --collect-all imageio --collect-all imageio_ffmpeg --collect-all PIL --collect-all fitz --collect-all docx --collect-all lxml src/app_launcher.py
+python -m PyInstaller --noconfirm --clean --windowed --name "TOOLBOX" --add-data "static/index.html;static" --hidden-import TOOLBOX --hidden-import hardware_profile --hidden-import document_converter --hidden-import edge_tts --hidden-import pysrt --hidden-import requests --hidden-import win32com --hidden-import win32com.client --collect-all moviepy --collect-all imageio --collect-all imageio_ffmpeg --collect-all PIL --collect-all fitz --collect-all docx --collect-all lxml src/app_launcher.py
 ```
 
 或者直接用 spec 文件：
 
 ```powershell
-python -m PyInstaller --noconfirm --clean config/toolbax.spec
+python -m PyInstaller --noconfirm --clean config/TOOLBOX.spec
 ```
 
 预期结果：
 
-- `dist/toolbax/toolbax.exe` 可以启动。
+- `dist/TOOLBOX/TOOLBOX.exe` 可以启动。
 - 不弹出控制台窗口。
 - 页面能打开，`/api/hardware` 和 `/api/estimate` 能返回结果。
 - 打包后的 exe 可以上传 PDF、PPTX、DOCX 并转换出正确画面数。
