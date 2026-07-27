@@ -332,6 +332,19 @@
         .voice-actions button[data-action="sync"]:hover { background: var(--accent-dark); }
         .voice-actions button.del { background: #f3e3e1; color: var(--danger); }
         .voice-error { color: var(--danger); font-size: 12px; margin-top: 6px; min-height: 1px; }
+        /* ===== Edge TTS 二级菜单 ===== */
+        .voice-group { border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+        .voice-group + .voice-group { margin-top: 8px; }
+        .voice-group-summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; padding: 10px 12px; background: #f8fafc; color: var(--accent-dark); font-size: 13px; font-weight: 800; user-select: none; }
+        .voice-group-summary::-webkit-details-marker { display: none; }
+        .voice-group-arrow { display: inline-block; width: 12px; color: var(--muted); transition: transform .18s ease; font-size: 10px; }
+        .voice-group[open] > .voice-group-summary .voice-group-arrow { transform: rotate(90deg); }
+        .voice-group-title { flex: 1; min-width: 0; }
+        .voice-group-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 700; }
+        .voice-group-body { padding: 8px 8px 8px 12px; display: grid; gap: 8px; }
+        .voice-subgroup { display: grid; gap: 6px; }
+        .voice-subgroup-title { font-size: 11px; font-weight: 800; color: var(--muted); padding: 2px 0 0 2px; letter-spacing: 0.5px; }
+        .voice-group .voice-item { padding: 7px 10px; }
 
         .voice-create { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
         .voice-create > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 10px 12px; color: var(--accent-dark); font-size: 13px; font-weight: 800; }
@@ -779,10 +792,6 @@
                     <details class="advanced-settings block">
                         <summary>高级设置与运行环境</summary>
                         <div class="advanced-settings-body">
-                            <div class="block">
-                                <div class="field-label">配音缓存</div>
-                                <div class="row-actions"><span id="ttsCacheStats" class="hint">加载中...</span><button class="secondary" id="ttsCacheClearBtn" type="button">清理</button></div>
-                            </div>
                             <details class="gpu" id="gpuDetails">
                                 <summary>性能 / GPU</summary>
                                 <div class="gpu-grid" id="gpuGrid"><div class="row"><span>检测中...</span></div></div>
@@ -909,6 +918,7 @@
         let previewTrigger = null;
         let selectedVoiceId = 'default';
         let currentVoices = [];
+        let edgeExpandedState = null;  // null = 自动（选中在 edge 组时展开），true/false = 手动覆盖
         let selectedVoiceFile = null;
         let selectedVoiceFileUrl = '';
         let manuscriptBusy = false;          // 生成文稿中（Step 1 loading）
@@ -1102,35 +1112,6 @@
                 scheduleProjectPersist();
             });
         });
-
-        async function refreshCacheStats() {
-            try {
-                const res = await apiFetch('/tts-cache/stats');
-                const data = await res.json();
-                if (data.success) {
-                    const s = data.data;
-                    document.getElementById('ttsCacheStats').textContent =
-                        `缓存: ${s.total_entries} 条, ${s.total_size_mb} MB`;
-                }
-            } catch (e) { /* ignore */ }
-        }
-
-        document.getElementById('ttsCacheClearBtn').addEventListener('click', async () => {
-            if (!confirm('确定清理所有配音缓存？')) return;
-            try {
-                const res = await apiFetch('/tts-cache/clear', { method: 'POST' });
-                const data = await res.json();
-                if (data.success) {
-                    showNotice(`已清理 ${data.data.cleared} 条配音缓存。`, 'success');
-                }
-                refreshCacheStats();
-            } catch (e) {
-                showNotice(`清理缓存失败：${formatFetchError(e)}`, 'error');
-            }
-        });
-
-        // 初始加载状态
-        refreshCacheStats();
 
         /* ===== 初始化 ===== */
         detectHardware();
@@ -1649,14 +1630,14 @@
                 updateMaterialProgress(
                     status.progress || 0,
                     status.message || '生成逐页文稿中…',
-                    ({ queued: '等待处理', prepare: '准备文稿任务', image_upload: '上传图片给 AI', ai: 'AI 生成逐页文稿', finalize: '整理逐页文稿', completed: '文稿生成完成' })[status.stage] || 'AI 生成逐页文稿',
+                    ({ queued: '等待处理', prepare: '准备文稿任务', image_upload: '上传图片给 AI', ai: 'AI 生成逐页文稿', finalize: '整理逐页文稿', cancelling: '正在取消', cancelled: '已取消', failed: '文稿生成失败', completed: '文稿生成完成' })[status.stage] || 'AI 生成逐页文稿',
                     Boolean(status.indeterminate)
                 );
                 (status.logs || []).forEach((entry) => {
                     const key = `${entry.time || ''}|${entry.stage || ''}|${entry.message || ''}`;
                     if (!entry.message || manuscriptLogKeys.has(key)) return;
                     manuscriptLogKeys.add(key);
-                    addLog(entry.message, entry.stage === 'failed' ? 'error' : '');
+                    addLog(entry.message, entry.stage === 'failed' ? 'error' : (entry.stage === 'completed' ? 'success' : ''));
                 });
                 if (status.status === 'completed') return status.result || {};
                 if (status.status === 'failed' || status.status === 'cancelled') {
@@ -1981,13 +1962,14 @@
                         const key = `${entry.time || ''}|${entry.stage || ''}|${entry.message || ''}`;
                         if (!entry.message || serverLogKeys.has(key)) return;
                         serverLogKeys.add(key);
-                        addLog(entry.message, entry.stage === 'failed' ? 'error' : '');
+                        addLog(entry.message, entry.stage === 'failed' ? 'error' : (entry.stage === 'completed' ? 'success' : ''));
                     });
 
                     const stageTitles = {
                         queued: '等待开始', prepare: '准备生成', upload: '上传素材',
                         manuscript: '准备文稿', tts: '正在生成配音', subtitle: '正在生成字幕',
-                        video: '正在合成视频', completed: '已完成'
+                        video: '正在合成视频', cancelling: '正在取消',
+                        cancelled: '已取消', failed: '生成失败', completed: '已完成'
                     };
                     waitTitle.textContent = stageTitles[status.stage] || '正在处理';
 
@@ -1995,15 +1977,12 @@
                         progressText.textContent = `${Math.round(progress)}% · 正在编码视频，时间较长时属于正常情况，请不要关闭页面。`;
                     }
                     if (status.status === 'completed') {
-                        addLog('视频生成完成。', 'success');
                         stopStatusCheck();
                         showDownload(status.outputs || []);
                     } else if (status.status === 'failed') {
-                        addLog(`生成失败：${status.message}`, 'error');
                         stopStatusCheck();
                         resetUI();
                     } else if (status.status === 'cancelled') {
-                        addLog('任务已取消。');
                         stopStatusCheck();
                         resetUI();
                     }
@@ -2227,6 +2206,17 @@
 
         /* ===== 语音 / 音色管理 ===== */
         voiceList.addEventListener('click', (event) => {
+            // 组标题点击：切换展开/折叠状态（仅切换，不选音色）
+            const groupSummary = event.target.closest('.voice-group-summary');
+            if (groupSummary) {
+                const group = groupSummary.closest('.voice-group');
+                if (group && group.classList.contains('edge-group')) {
+                    // 由 <details> 原生处理展开/折叠；同步手动状态
+                    edgeExpandedState = !group.hasAttribute('open');
+                    // 让 <details> 原生 toggle 生效（不 preventDefault）
+                }
+                return;
+            }
             const item = event.target.closest('.voice-item');
             if (!item) return;
             const id = item.dataset.id;
@@ -2279,10 +2269,23 @@
         }
 
         function renderVoices(voices) {
-            voiceList.innerHTML = voices.map((v) => {
+            // 分组：edge = Edge TTS 云端音色（二级菜单），cosyvoice3 = 本地克隆音色
+            const edgeVoices = voices.filter((v) => (v.group === 'edge') || (v.type === 'cloud_parallel' && v.group !== 'cosyvoice3'));
+            const cloneVoices = voices.filter((v) => v.group === 'cosyvoice3' || v.type === 'cosyvoice3');
+            // Edge TTS 内部按性别分组
+            const edgeFemale = edgeVoices.filter((v) => v.gender === 'female');
+            const edgeMale = edgeVoices.filter((v) => v.gender === 'male');
+            const edgeChild = edgeVoices.filter((v) => v.gender === 'child');
+            const edgeOther = edgeVoices.filter((v) => !v.gender || (v.gender !== 'female' && v.gender !== 'male' && v.gender !== 'child'));
+
+            // 当前选中的是否在 Edge TTS 组里 → 决定是否默认展开
+            const selectedInEdge = edgeVoices.some((v) => v.id === selectedVoiceId);
+            const edgeExpanded = edgeExpandedState !== null ? edgeExpandedState : selectedInEdge;
+
+            function renderItem(v) {
                 const selected = v.id === selectedVoiceId ? ' selected' : '';
                 const unavailable = v.available === false ? ' unavailable' : '';
-                const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : '默认云端';
+                const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : 'Edge TTS 云端';
                 const availabilityLabel = v.availability_reason ? ` · ${v.availability_reason}` : '';
                 const actionParts = [];
                 if (v.deletable) {
@@ -2300,7 +2303,42 @@
                         </span>
                         ${actions}
                     </div>`;
-            }).join('');
+            }
+
+            function renderEdgeGroup(label, items) {
+                if (!items.length) return '';
+                const html = items.map(renderItem).join('');
+                return `<div class="voice-subgroup"><div class="voice-subgroup-title">${escapeHtml(label)}</div>${html}</div>`;
+            }
+
+            const edgeHtml = !edgeVoices.length ? '' : `
+                <details class="voice-group edge-group"${edgeExpanded ? ' open' : ''}>
+                    <summary class="voice-group-summary">
+                        <span class="voice-group-arrow">▶</span>
+                        <span class="voice-group-title">Edge TTS 云端音色</span>
+                        <span class="voice-group-count">${edgeVoices.length}</span>
+                    </summary>
+                    <div class="voice-group-body">
+                        ${renderEdgeGroup('女声', edgeFemale)}
+                        ${renderEdgeGroup('男声', edgeMale)}
+                        ${renderEdgeGroup('童声', edgeChild)}
+                        ${renderEdgeGroup('其他', edgeOther)}
+                    </div>
+                </details>`;
+
+            const cloneHtml = !cloneVoices.length ? '' : `
+                <details class="voice-group clone-group" open>
+                    <summary class="voice-group-summary">
+                        <span class="voice-group-arrow">▶</span>
+                        <span class="voice-group-title">CosyVoice3 本地克隆</span>
+                        <span class="voice-group-count">${cloneVoices.length}</span>
+                    </summary>
+                    <div class="voice-group-body">
+                        ${cloneVoices.map(renderItem).join('')}
+                    </div>
+                </details>`;
+
+            voiceList.innerHTML = edgeHtml + cloneHtml;
         }
 
         function updateVoiceControls() {
@@ -2572,7 +2610,7 @@
             const showHint = () => hint && hint.classList.remove('hidden');
 
             if (!s.hardware_capable) {
-                body.innerHTML = `<div class="gpu-voice-status off">未检测到可用 GPU。默认音色仍可使用 Edge TTS。</div>`;
+                body.innerHTML = `<div class="gpu-voice-status off">未检测到可用 GPU。Edge TTS 云端音色仍可使用。</div>`;
                 hideHint();
                 return;
             }

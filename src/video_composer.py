@@ -223,9 +223,6 @@ class VideoComposer:
         Returns:
             拼接后的音频文件路径
         """
-        silence_300 = self._get_silence_300ms()
-        silence_600 = self._get_silence_600ms()
-
         # 按 page_id 分组
         pages = {}
         for seg in all_segments:
@@ -233,6 +230,14 @@ class VideoComposer:
                 pages.setdefault(seg.page_id, []).append(seg)
 
         sorted_page_ids = sorted(pages.keys())
+        first_audio = next(
+            (seg.audio_path for page_id in sorted_page_ids for seg in pages[page_id]
+             if seg.audio_path and os.path.isfile(seg.audio_path)),
+            "",
+        )
+        audio_ext = os.path.splitext(first_audio)[1].lower() or ".wav"
+        silence_300 = self._get_silence_300ms(audio_ext)
+        silence_600 = self._get_silence_600ms(audio_ext)
 
         # 生成 concat 列表文件
         list_path = os.path.join(
@@ -299,17 +304,39 @@ class VideoComposer:
                 except OSError:
                     pass
 
-    def _get_silence_300ms(self) -> Optional[str]:
+    def _get_silence_300ms(self, audio_ext: str = ".wav") -> Optional[str]:
         """获取 300ms 静音 WAV 路径。"""
-        if self._cache_manager:
+        if self._cache_manager and audio_ext == ".wav":
             return self._cache_manager.get_silence_300ms()
-        return None
+        return self._ensure_silence_file(0.3, audio_ext)
 
-    def _get_silence_600ms(self) -> Optional[str]:
+    def _get_silence_600ms(self, audio_ext: str = ".wav") -> Optional[str]:
         """获取 600ms 静音 WAV 路径。"""
-        if self._cache_manager:
+        if self._cache_manager and audio_ext == ".wav":
             return self._cache_manager.get_silence_600ms()
-        return None
+        return self._ensure_silence_file(0.6, audio_ext)
+
+    @staticmethod
+    def _ensure_silence_file(duration: float, audio_ext: str) -> Optional[str]:
+        """生成与旁白容器格式一致的静音，确保字幕声明的停顿真实存在。"""
+        audio_ext = audio_ext if audio_ext in (".mp3", ".wav") else ".wav"
+        milliseconds = int(round(duration * 1000))
+        path = os.path.join(tempfile.gettempdir(), f"toolbax_silence_{milliseconds}ms{audio_ext}")
+        if os.path.isfile(path) and os.path.getsize(path) > 0:
+            return path
+        ffmpeg = resolve_ffmpeg()
+        if not ffmpeg:
+            return None
+        codec = "libmp3lame" if audio_ext == ".mp3" else "pcm_s16le"
+        result = subprocess.run(
+            [
+                ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+                "-t", f"{duration:.3f}", "-c:a", codec, path,
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", **_silent_kwargs(),
+        )
+        return path if result.returncode == 0 and os.path.isfile(path) else None
 
     def _build_filter_complex(self, images: List[dict], durations: List[float],
                               width: int, height: int, fps: int) -> str:

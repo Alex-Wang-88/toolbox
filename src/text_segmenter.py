@@ -12,7 +12,7 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Dict
 
 
 @dataclass
@@ -28,6 +28,7 @@ class SegmentData:
         audio_path: 音频文件路径
         audio_duration: 音频时长（秒）
         status: 状态 cached/generating/generated/failed
+        subtitle_cues: TTS 返回的精确字幕边界（相对本段的秒数）
     """
     page_id: int = 0
     segment_id: int = 0
@@ -37,6 +38,7 @@ class SegmentData:
     audio_path: str = ""
     audio_duration: float = 0.0
     status: str = "generating"
+    subtitle_cues: List[Dict] = field(default_factory=list)
 
 
 # AI 缩写发音改写正则：独立 "AI" -> "A.I"

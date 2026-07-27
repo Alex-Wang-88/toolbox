@@ -46,6 +46,7 @@ from paths import (
     UPLOAD_FOLDER,
     OUTPUT_FOLDER,
     OUTPUT_SETTINGS_FILE,
+    TTS_CACHE_DIR,
     ensure_runtime_dirs,
 )
 
@@ -74,6 +75,10 @@ client_state_lock = threading.Lock()
 generation_lock = threading.Lock()
 manuscript_lock = threading.Lock()
 client_generation = 0
+
+_COSYVOICE3_MODEL_DIR = os.path.normpath(
+    os.path.join(PROJECT_ROOT, "tts_poc", "models", "CosyVoice3-0.5B")
+)
 
 
 def enable_dpi_awareness():
@@ -173,7 +178,14 @@ def resource_path(relative_path):
 def assert_not_cancelled(task_id):
     if tasks.get(task_id, {}).get("cancel_requested"):
         tasks[task_id]["status"] = "cancelled"
-        tasks[task_id]["message"] = "任务已取消"
+        update_task_progress(
+            task_id,
+            tasks[task_id].get("progress", 0),
+            "任务已取消",
+            stage="cancelled",
+            log=True,
+            indeterminate=False,
+        )
         raise RuntimeError("任务已取消")
 
 
@@ -197,6 +209,21 @@ def update_task_progress(task_id, progress, message, stage=None, log=False, inde
             del logs[:-80]
 
 
+def clear_previous_tts_cache():
+    """在新配音任务开始前清空上一轮的分段音频缓存。"""
+    from tts_cache import TtsCacheManager
+
+    cache = TtsCacheManager(TTS_CACHE_DIR, _COSYVOICE3_MODEL_DIR)
+    cleared = cache.invalidate_all()
+    remaining = [
+        name for name in os.listdir(TTS_CACHE_DIR)
+        if os.path.isdir(os.path.join(TTS_CACHE_DIR, name)) and not name.startswith("_")
+    ]
+    if remaining:
+        raise RuntimeError("上一轮配音缓存未能完全清理，请关闭占用缓存文件的程序后重试")
+    return cleared
+
+
 def make_tts_progress_callback(task_id, start=60, end=78, prefix="生成克隆配音"):
     """把分段 TTS 的真实完成量映射到视频任务进度区间。"""
     last = {"message": None}
@@ -217,24 +244,65 @@ def make_tts_progress_callback(task_id, start=60, end=78, prefix="生成克隆�
 
 
 def estimate_generation_request(image_count, subtitle_mode, voice="default", character_count=0, speech_speed=1.0, profile=None, cache_hint=None):
-    """估算整条生成链路；克隆音色(cosyvoice3)额外补一次性模型加载固定开销。
+    """估算整条生成链路。
 
-    Args:
-        cache_hint: 缓存提示
-            None/False → 冷启动（含 TTS 合成，保守默认）
-            True      → 热启动（缓存命中，仅视频合成）
-            "auto"    → 自动判断（有 warm 样本时用 warm rate）
-
-    注意：base 已含稳态推理（calibrated_mode_rates 已从样本中剥离首次加载），
-    冷启动时仅补一次性模型加载；warm 轨不补（模型已在内存，TTS 被缓存跳过）。
+    Edge TTS 走云端 API，最多 8 路并发，单独按请求波次估算；不能套用本地
+    CosyVoice3 的逐段推理历史样本。本地配音每次生成前都会清空上一轮缓存，
+    因此始终按完整推理耗时估算；cache_hint 仅为旧调用兼容而保留。
     """
-    base = estimate_seconds(image_count, subtitle_mode, profile, cache_hint=cache_hint)
-    if not voice or voice == "default" or not image_count:
+    is_edge = _voice_is_edge(voice)
+    if is_edge:
+        return estimate_edge_generation_request(
+            image_count, subtitle_mode, character_count, speech_speed
+        )
+
+    base = estimate_seconds(image_count, subtitle_mode, profile, cache_hint=False)
+    if not image_count:
         return base
-    # 仅冷启动时补模型加载固定开销；warm 轨不需要（模型已常驻 + TTS 被缓存跳过）
-    if cache_hint is not True:
-        base += FIRST_LOAD_OVERHEAD
-    return base
+    return base + FIRST_LOAD_OVERHEAD
+
+
+def estimate_edge_generation_request(image_count, subtitle_mode, character_count=0, speech_speed=1.0):
+    """Edge TTS 云端并发路径 ETA（API 请求 + NVENC 合成）。
+
+    - Edge TTS 并发上限与实际生成代码一致：8 路；
+    - API 耗时按请求波次计算，而不是按页串行累加；
+    - 字数未知时按当前讲稿的常见值 150 字/页估算；
+    - 视频编码部分随画面数和旁白总时长增长。
+    """
+    image_count = max(0, int(image_count or 0))
+    if image_count == 0:
+        return 0
+    try:
+        character_count = max(0, int(character_count or 0))
+    except (TypeError, ValueError):
+        character_count = 0
+    if character_count == 0:
+        character_count = image_count * 150
+    try:
+        speech_speed = max(0.7, min(1.5, float(speech_speed or 1.0)))
+    except (TypeError, ValueError):
+        speech_speed = 1.0
+
+    request_waves = math.ceil(image_count / 8)
+    # 每波包含建连/排队/下载开销；文本传输与服务端合成只做轻量线性补偿。
+    edge_api_seconds = request_waves * 8.0 + character_count / 100.0
+
+    narration_seconds = character_count / (4.5 * speech_speed)
+    subtitle_enabled = subtitle_mode != "off"
+    encode_realtime_factor = 0.04 if subtitle_enabled else 0.02
+    video_seconds = (
+        6.0
+        + image_count * 0.8
+        + narration_seconds * encode_realtime_factor
+    )
+    return max(1, int(math.ceil(edge_api_seconds + video_seconds)))
+
+
+def _voice_is_edge(voice):
+    """按注册类型判断 Edge 云端音色；不能用 id 是否为 default 判断。"""
+    meta = VOICE_REGISTRY.get_voice(voice or "default")
+    return bool(meta and meta.type == "cloud_parallel")
 
 
 def sanitize_filename_part(value, fallback="视频"):
@@ -402,17 +470,24 @@ def run_video_generation(task_id, image_items, subtitle_mode, voice="default", m
         tasks[task_id]["output_base_name"] = output_base_name
 
         assert_not_cancelled(task_id)
-        voice_label = "克隆配音" if voice != "default" else "云端配音"
+        cleared_cache_entries = clear_previous_tts_cache()
+        update_task_progress(
+            task_id, 56, f"已清理上一轮配音缓存（{cleared_cache_entries} 条）",
+            stage="tts", log=True, indeterminate=False,
+        )
+        is_edge_voice = _voice_is_edge(voice)
+        voice_label = "云端配音" if is_edge_voice else "克隆配音"
         update_task_progress(
             task_id, 58,
-            f"正在准备{voice_label}..." + ("首次使用可能需要加载模型" if voice != "default" else ""),
-            stage="tts", log=True,
+            f"正在准备{voice_label}..." + ("" if is_edge_voice else "首次使用可能需要加载模型"),
+            stage="tts", log=True, indeterminate=True,
         )
-        tts_progress_callback = make_tts_progress_callback(task_id) if voice != "default" else None
-        # 跨进程 GPU 串行锁：避免与本地克隆训练抢卡
-        if voice != "default":
+        tts_progress_callback = None if is_edge_voice else make_tts_progress_callback(task_id)
+        # 只有本地克隆需要 GPU 推理锁；Edge TTS 是云端 API，不应被本地训练阻塞。
+        gpu_acquired = False
+        if not is_edge_voice:
             update_task_progress(task_id, 59, "等待本地语音引擎，随后按段生成配音...", stage="tts", log=True, indeterminate=True)
-        gpu_arbiter.acquire(block=True)
+            gpu_acquired = gpu_arbiter.acquire(block=True)
         try:
             audio_info_list = pipeline.batch_generate_tts(
                 speech_dict,
@@ -423,10 +498,11 @@ def run_video_generation(task_id, image_items, subtitle_mode, voice="default", m
                 progress_callback=tts_progress_callback,
             )
         finally:
-            gpu_arbiter.release()
+            if gpu_acquired:
+                gpu_arbiter.release()
 
         assert_not_cancelled(task_id)
-        update_task_progress(task_id, 80, "配音完成，正在生成字幕时间轴...", stage="subtitle", log=True)
+        update_task_progress(task_id, 80, "配音完成，正在生成字幕时间轴...", stage="subtitle", log=True, indeterminate=False)
         srt_path = pipeline.generate_srt_subtitle(audio_info_list)
 
         # 重构后默认只输出一个带字幕视频 + SRT 文件
@@ -448,20 +524,16 @@ def run_video_generation(task_id, image_items, subtitle_mode, voice="default", m
         assert_not_cancelled(task_id)
         tasks[task_id]["status"] = "completed"
         update_task_progress(task_id, 100, "视频生成完成", stage="completed", log=True, indeterminate=False)
-        # 检测是否缓存命中（所有 TTS 段均为 cached/cached_file → warm）
-        is_cache_hit = False
-        if voice != "default" and audio_info_list:
-            all_cached = all(
-                getattr(s, "status", "") in ("cached", "cached_file")
-                for s in audio_info_list
-            )
-            is_cache_hit = bool(audio_info_list) and all_cached
         record_actual_run(len(image_files), subtitle_mode, int(time.time() - started_at),
-                          cache_hit=is_cache_hit)
+                          cache_hit=False,
+                          voice_mode="cloud" if is_edge_voice else "clone")
     except Exception as exc:
         if tasks.get(task_id, {}).get("status") != "cancelled":
             tasks[task_id]["status"] = "failed"
-            update_task_progress(task_id, tasks[task_id].get("progress", 0), f"生成失败：{exc}", stage="failed", log=True)
+            update_task_progress(
+                task_id, tasks[task_id].get("progress", 0),
+                f"生成失败：{exc}", stage="failed", log=True, indeterminate=False,
+            )
             print(f"任务失败：{exc}")
     finally:
         generation_lock.release()
@@ -653,26 +725,18 @@ def estimate():
     voice = data.get("voice", "default") or "default"
     character_count = data.get("character_count", 0)
     speech_speed = data.get("speech_speed", 1.0)
-    cache_hint = data.get("cache_hint")  # None/False=cold, True=warm, "auto"
     profile = detect_hardware()
     seconds = estimate_generation_request(
         image_count, subtitle_mode, voice, character_count, speech_speed, profile,
-        cache_hint=cache_hint,
     )
-    # 同时返回 warm 轨预估供前端参考（如"若缓存命中约 X 分钟"）
-    warm_seconds = None
-    if voice and voice != "default" and image_count:
-        warm_seconds = estimate_generation_request(
-            image_count, subtitle_mode, voice, character_count, speech_speed, profile,
-            cache_hint=True,
-        )
+    is_edge = _voice_is_edge(voice)
     result = {
         "seconds": seconds,
         "label": estimate_label(seconds),
-        "warm_seconds": warm_seconds,
-        "warm_label": estimate_label(warm_seconds) if warm_seconds else None,
+        "warm_seconds": None,
+        "warm_label": None,
         "profile": profile,
-        "voice_mode": "clone" if voice != "default" else "cloud",
+        "voice_mode": "cloud" if is_edge else "clone",
     }
     return jsonify(result)
 
@@ -749,13 +813,10 @@ def generate_video_task():
             if not isinstance(item, dict) or not isinstance(item.get("text"), str):
                 return jsonify({"error": f"第 {index + 1} 页文稿格式无效"}), 400
 
-    if voice != "default":
-        settings = gpu_setup.load_gpu_voice_settings(DATA_ROOT)
-        has_dependency, _ = gpu_setup.check_dependency()
-        if not settings.get("enabled", False) or not has_dependency:
-            return jsonify({"error": "所选本地音色不可用，请先开启 GPU 语音加速并完成依赖安装"}), 409
-        if VOICE_REGISTRY.get_voice(voice) is None:
-            return jsonify({"error": "所选音色不存在，请重新选择"}), 400
+    voice_ok, voice_error = _tts_check_voice(voice)
+    if not voice_ok:
+        status = 409 if "不可用" in voice_error else 400
+        return jsonify({"error": voice_error}), status
 
     # 主界面统一输出 1080p；忽略旧客户端或历史会话中的 720p 参数。
     output_mode = "1080p"
@@ -937,7 +998,14 @@ def cancel_task(task_id):
 
     if tasks[task_id]["status"] in ("pending", "processing"):
         tasks[task_id]["cancel_requested"] = True
-        tasks[task_id]["message"] = "正在取消任务..."
+        update_task_progress(
+            task_id,
+            tasks[task_id].get("progress", 0),
+            "正在取消任务...",
+            stage="cancelling",
+            log=True,
+            indeterminate=True,
+        )
         return jsonify({"success": True})
 
     return jsonify({"error": "任务无法取消"}), 400
@@ -1088,6 +1156,12 @@ def list_voices():
             "availability_reason": (
                 "" if (v.type == "cloud_parallel" or cosy3_ready) else cosy3_reason
             ),
+            # Edge TTS 具体音色名（cloud_parallel 类型才有），供前端展示与调试
+            "edge_voice": getattr(v, "edge_voice", "") or "",
+            # 性别：female | male | child（仅用于前端分组展示）
+            "gender": getattr(v, "gender", "") or "",
+            # 前端分组标签：edge | cosyvoice3
+            "group": getattr(v, "group", "") or ("cosyvoice3" if v.type == "cosyvoice3" else "edge"),
         }
         for v in VOICE_REGISTRY.list_voices()
     ]
@@ -1104,13 +1178,16 @@ def _tts_clamp_speed(value):
 
 
 def _tts_check_voice(voice):
-    """校验本地音色可用性（复用 /api/generate 的同款规则）。返回 (ok, msg)。"""
+    """校验音色；Edge 云端不依赖 GPU，本地克隆才检查运行环境。"""
+    meta = VOICE_REGISTRY.get_voice(voice or "default")
+    if meta is None:
+        return False, "所选音色不存在，请重新选择"
+    if meta.type == "cloud_parallel":
+        return True, ""
     settings = gpu_setup.load_gpu_voice_settings(DATA_ROOT)
     has_dependency, _ = gpu_setup.check_dependency()
     if not settings.get("enabled", False) or not has_dependency:
         return False, "所选本地音色不可用，请先开启 GPU 语音加速并完成依赖安装"
-    if VOICE_REGISTRY.get_voice(voice) is None:
-        return False, "所选音色不存在，请重新选择"
     return True, ""
 
 
@@ -1169,17 +1246,35 @@ def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=
         import toolbax as pipeline
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
+        assert_not_cancelled(task_id)
+        cleared_cache_entries = clear_previous_tts_cache()
+        update_task_progress(
+            task_id, 14, f"已清理上一轮配音缓存（{cleared_cache_entries} 条）",
+            stage="prepare", log=True, indeterminate=False,
+        )
 
-        update_task_progress(task_id, 18, "等待语音引擎资源...", stage="tts", log=True, indeterminate=True)
-        gpu_acquired = gpu_arbiter.acquire(block=True, timeout=1800)
-        if not gpu_acquired:
-            raise RuntimeError("GPU 正忙（训练中），请稍后重试")
+        is_edge_voice = _voice_is_edge(voice)
+        if is_edge_voice:
+            update_task_progress(task_id, 18, "正在请求 Edge TTS 云端服务...", stage="tts", log=True, indeterminate=True)
+        else:
+            update_task_progress(task_id, 18, "等待本地语音引擎资源...", stage="tts", log=True, indeterminate=True)
+            gpu_acquired = gpu_arbiter.acquire(block=True, timeout=1800)
+            if not gpu_acquired:
+                raise RuntimeError("GPU 正忙（训练中），请稍后重试")
 
-        callback = make_tts_progress_callback(task_id, 20, 84, "单段配音") if voice != "default" else None
+        callback = None
+        if not is_edge_voice:
+            progress_callback = make_tts_progress_callback(task_id, 20, 84, "单段配音")
+
+            def callback(*args, **kwargs):
+                assert_not_cancelled(task_id)
+                return progress_callback(*args, **kwargs)
+
         audio_info_list = pipeline.batch_generate_tts(
             {1: text}, None, voice=voice, data_root=DATA_ROOT,
             speech_speed=speed, progress_callback=callback,
         )
+        assert_not_cancelled(task_id)
         segs = pipeline._last_all_segments
         seg_paths = [
             s.audio_path for s in segs
@@ -1197,6 +1292,7 @@ def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=
 
         result = {"audio_url": f"/api/tts/file/quick_{qid}.mp3"}
         if with_video:
+            assert_not_cancelled(task_id)
             img_path = _resolve_quick_image(image)
             srt_path = pipeline.generate_srt_subtitle(audio_info_list)
             update_task_progress(task_id, 94, "正在生成配套视频...", stage="video", log=True)
@@ -1210,12 +1306,21 @@ def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=
             except Exception as exc:
                 result["video_error"] = str(exc)
 
+        assert_not_cancelled(task_id)
         tasks[task_id]["result"] = result
         tasks[task_id]["status"] = "completed"
-        update_task_progress(task_id, 100, "音频生成完成", stage="completed", log=True, indeterminate=False)
+        completion_message = "视频生成完成" if with_video else "音频生成完成"
+        update_task_progress(
+            task_id, 100, completion_message,
+            stage="completed", log=True, indeterminate=False,
+        )
     except Exception as exc:
-        tasks[task_id]["status"] = "failed"
-        update_task_progress(task_id, tasks[task_id].get("progress", 0), f"音频生成失败：{exc}", stage="failed", log=True)
+        if tasks.get(task_id, {}).get("status") != "cancelled":
+            tasks[task_id]["status"] = "failed"
+            update_task_progress(
+                task_id, tasks[task_id].get("progress", 0),
+                f"音频生成失败：{exc}", stage="failed", log=True, indeterminate=False,
+            )
     finally:
         if gpu_acquired:
             gpu_arbiter.release()
@@ -1231,23 +1336,55 @@ def _batch_generate_worker(task_id, lines, voice, speed):
         pipeline.init_output_folders()
 
         tasks[task_id]["status"] = "processing"
-        tasks[task_id]["progress"] = 10
-        tasks[task_id]["message"] = "准备批量生成..."
+        update_task_progress(
+            task_id, 10, "准备批量生成...", stage="prepare",
+            log=True, indeterminate=False,
+        )
+        assert_not_cancelled(task_id)
+        cleared_cache_entries = clear_previous_tts_cache()
+        update_task_progress(
+            task_id, 20, f"已清理上一轮配音缓存（{cleared_cache_entries} 条）",
+            stage="prepare", log=True, indeterminate=False,
+        )
 
         speech_dict = {i + 1: (lines[i] or "") for i in range(len(lines))}
         out_dir = os.path.join(get_output_folder(), f"batch_{task_id}")
         os.makedirs(out_dir, exist_ok=True)
 
-        # 跨进程 GPU 串行锁（与 9873 训练互斥）
-        gpu_arbiter.acquire(block=True)
+        is_edge_voice = _voice_is_edge(voice)
+        gpu_acquired = False
+        if is_edge_voice:
+            update_task_progress(
+                task_id, 30, "正在并发请求 Edge TTS 云端服务...",
+                stage="tts", log=True, indeterminate=True,
+            )
+        else:
+            update_task_progress(
+                task_id, 30, "等待本地语音引擎，随后分段生成配音...",
+                stage="tts", log=True, indeterminate=True,
+            )
+            gpu_acquired = gpu_arbiter.acquire(block=True)
+        progress_callback = None
+        if not is_edge_voice:
+            base_callback = make_tts_progress_callback(task_id, 30, 88, "批量配音")
+
+            def progress_callback(*args, **kwargs):
+                assert_not_cancelled(task_id)
+                return base_callback(*args, **kwargs)
+
         try:
-            update_task_progress(task_id, 30, "准备分段生成配音...", stage="tts", log=True, indeterminate=True)
             audio_info_list = pipeline.batch_generate_tts(
                 speech_dict, None, voice=voice, data_root=DATA_ROOT, speech_speed=speed,
-                progress_callback=make_tts_progress_callback(task_id, 30, 88, "批量配音"),
+                progress_callback=progress_callback,
             )
         finally:
-            gpu_arbiter.release()
+            if gpu_acquired:
+                gpu_arbiter.release()
+        assert_not_cancelled(task_id)
+        update_task_progress(
+            task_id, 90, "配音完成，正在整理批量文件...",
+            stage="finalize", log=True, indeterminate=False,
+        )
 
         segs = pipeline._last_all_segments
         manifest = []
@@ -1290,8 +1427,12 @@ def _batch_generate_worker(task_id, lines, voice, speed):
                     fp = os.path.join(root, fn)
                     zf.write(fp, os.path.relpath(fp, out_dir))
 
+        assert_not_cancelled(task_id)
         tasks[task_id]["status"] = "completed"
-        update_task_progress(task_id, 100, f"批量生成完成：{produced}/{len(lines)} 条", stage="completed", log=True)
+        update_task_progress(
+            task_id, 100, f"批量生成完成：{produced}/{len(lines)} 条",
+            stage="completed", log=True, indeterminate=False,
+        )
         tasks[task_id]["zip_url"] = f"/api/tts/file/batch_{task_id}.zip"
         tasks[task_id]["result"] = {
             "produced": produced,
@@ -1299,9 +1440,14 @@ def _batch_generate_worker(task_id, lines, voice, speed):
             "download_url": f"/api/tts/file/batch_{task_id}.zip",
         }
     except Exception as exc:
-        tasks[task_id]["status"] = "failed"
-        tasks[task_id]["message"] = f"批量生成失败：{exc}"
-        print(f"批量生成失败：{exc}")
+        if tasks.get(task_id, {}).get("status") != "cancelled":
+            tasks[task_id]["status"] = "failed"
+            update_task_progress(
+                task_id, tasks[task_id].get("progress", 0),
+                f"批量生成失败：{exc}", stage="failed",
+                log=True, indeterminate=False,
+            )
+            print(f"批量生成失败：{exc}")
     finally:
         generation_lock.release()
 
@@ -1318,10 +1464,9 @@ def tts_quick():
     with_video = bool(data.get("with_video"))
     image = data.get("image") or None
 
-    if voice != "default":
-        ok, msg = _tts_check_voice(voice)
-        if not ok:
-            return jsonify({"error": msg}), 409 if "不可用" in msg else 400
+    ok, msg = _tts_check_voice(voice)
+    if not ok:
+        return jsonify({"error": msg}), 409 if "不可用" in msg else 400
     if with_video and not _resolve_quick_image(image):
         return jsonify({"error": "生成视频需提供有效的 image 路径"}), 400
 
@@ -1344,13 +1489,16 @@ def tts_quick():
     pipeline.OUTPUT_FOLDER = get_output_folder()
     pipeline.init_output_folders()
 
-    # 跨进程 GPU 串行锁：覆盖 TTS + 视频编码全程，避免与 9873 训练抢卡
-    # 外层 generation_lock 串行化所有写入 _last_all_segments / 固定 SRT 路径的生成路径
+    # 外层 generation_lock 串行化所有写入 _last_all_segments / 固定 SRT 路径的生成路径。
+    # Edge TTS 为云端 API；只有本地克隆需要 GPU 推理锁。
     generation_lock.acquire()
-    if not gpu_arbiter.acquire(block=True, timeout=1800):
-        generation_lock.release()
-        return jsonify({"error": "GPU 正忙（训练中），请稍后重试"}), 429
+    gpu_acquired = False
     try:
+        clear_previous_tts_cache()
+        if not _voice_is_edge(voice):
+            gpu_acquired = gpu_arbiter.acquire(block=True, timeout=1800)
+            if not gpu_acquired:
+                return jsonify({"error": "GPU 正忙（训练中），请稍后重试"}), 429
         audio_info_list = pipeline.batch_generate_tts(
             {1: text}, None, voice=voice, data_root=DATA_ROOT, speech_speed=speed,
         )
@@ -1383,7 +1531,8 @@ def tts_quick():
                 result["video_error"] = str(e)
         return jsonify(result)
     finally:
-        gpu_arbiter.release()
+        if gpu_acquired:
+            gpu_arbiter.release()
         generation_lock.release()
 
 
@@ -1398,10 +1547,9 @@ def tts_batch():
         return jsonify({"error": "单次批量上限 500 行"}), 400
     voice = data.get("voice") or "default"
     speed = _tts_clamp_speed(data.get("speed", 1.0))
-    if voice != "default":
-        ok, msg = _tts_check_voice(voice)
-        if not ok:
-            return jsonify({"error": msg}), 409 if "不可用" in msg else 400
+    ok, msg = _tts_check_voice(voice)
+    if not ok:
+        return jsonify({"error": msg}), 409 if "不可用" in msg else 400
 
     task_id = str(uuid.uuid4())
     tasks[task_id] = {
@@ -1706,37 +1854,6 @@ def download_voice(voice_id):
 
 
 
-
-
-# TTS 缓存目录 + CosyVoice3 权重目录（供缓存统计/清理直接使用）
-_TTS_CACHE_DIR = os.path.join(DATA_ROOT, "tts_cache")
-_COSYVOICE3_MODEL_DIR = os.path.normpath(
-    os.path.join(PROJECT_ROOT, "tts_poc", "models", "CosyVoice3-0.5B")
-)
-
-
-@app.route("/api/tts-cache/stats", methods=["GET"])
-def tts_cache_stats():
-    """获取 TTS 缓存统计信息。"""
-    try:
-        from tts_cache import TtsCacheManager
-        cache = TtsCacheManager(_TTS_CACHE_DIR, _COSYVOICE3_MODEL_DIR)
-        stats = cache.get_stats()
-        return jsonify({"success": True, "data": stats})
-    except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
-
-
-@app.route("/api/tts-cache/clear", methods=["POST"])
-def tts_cache_clear():
-    """清理 TTS 配音缓存。"""
-    try:
-        from tts_cache import TtsCacheManager
-        cache = TtsCacheManager(_TTS_CACHE_DIR, _COSYVOICE3_MODEL_DIR)
-        count = cache.invalidate_all()
-        return jsonify({"success": True, "data": {"cleared": count}})
-    except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
 
 
 # 程序退出时关闭 Worker 进程（CosyVoice3 Worker 为子进程，需显式回收以释放 GPU 显存）

@@ -725,10 +725,12 @@ def generate_full_speech(image_info_list: List[Dict]) -> Dict[int, str]:
     """兼容旧调用：只返回话术字典。"""
     return generate_full_speech_result(image_info_list)['speech']
 
-async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='normal', speed: float=None) -> Dict:
+async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='normal', speed: float=None, edge_voice: str=None) -> Dict:
     audio_path = os.path.join(OUTPUT_FOLDER, 'audio', f'{global_id}.mp3')
     submaker = edge_tts.SubMaker()
     text = text or ''
+    # Edge TTS 音色：优先使用传入的 edge_voice，否则回退到模块默认 VOICE
+    tts_voice = edge_voice or VOICE
     if speed is not None:
         rate = _speed_to_edge_rate(speed)
     else:
@@ -738,11 +740,18 @@ async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='norm
         result = subprocess.run([ffmpeg, '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', '1', '-codec:a', 'libmp3lame', audio_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **silent_subprocess_kwargs())
         if result.returncode != 0 or not os.path.isfile(audio_path):
             raise RuntimeError(f'空白页静音音频生成失败：{result.stderr.strip()[-500:]}')
-        return {'global_id': global_id, 'text': text, 'audio_path': audio_path, 'duration_seconds': get_audio_duration(audio_path), 'submaker': submaker}
+        return {'global_id': global_id, 'text': text, 'audio_path': audio_path, 'duration_seconds': get_audio_duration(audio_path), 'submaker': submaker, 'word_boundaries': []}
     last_error = None
     for attempt in range(3):
         try:
-            communicate = edge_tts.Communicate(normalize_special_pronunciation(text), VOICE, rate=rate)
+            # edge-tts 7.x 默认请求 SentenceBoundary；本流程需要词级时间戳来
+            # 生成与实际发音同步的字幕，因此必须显式请求 WordBoundary。
+            communicate = edge_tts.Communicate(
+                normalize_special_pronunciation(text),
+                tts_voice,
+                rate=rate,
+                boundary='WordBoundary',
+            )
             audio_bytes = 0
             with open(audio_path, 'wb') as f:
                 async for chunk in communicate.stream():
@@ -773,9 +782,24 @@ async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='norm
         else:
             raise RuntimeError(f'Edge TTS 连续失败且无可用备选方案：{last_error}')
     duration_seconds = get_audio_duration(audio_path)
+    word_boundaries = [
+        {
+            'start': cue.start.total_seconds(),
+            'end': cue.end.total_seconds(),
+            'text': cue.content,
+        }
+        for cue in submaker.cues
+    ]
     text_length = len(text)
     print(f'[OK] 语音：图片{global_id} | {duration_seconds:.1f}秒 | 语速{rate} | 文本长度{text_length}字 | {text[:30]}...')
-    return {'global_id': global_id, 'text': text, 'audio_path': audio_path, 'duration_seconds': duration_seconds, 'submaker': submaker}
+    return {
+        'global_id': global_id,
+        'text': text,
+        'audio_path': audio_path,
+        'duration_seconds': duration_seconds,
+        'submaker': submaker,
+        'word_boundaries': word_boundaries,
+    }
 
 def synthesize_with_windows_sapi(text: str, audio_path: str, speech_rate: str='normal') -> None:
     """Edge TTS不可用时，用Windows本地语音生成音频。仅 Windows 可用。"""
@@ -884,8 +908,17 @@ def batch_generate_tts(speech_dict: Dict[int, str], image_info_list: List[Dict]=
     init_output_folders()
     speech_speed = _clamp_speech_speed(speech_speed)
     data_root = data_root or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app_data')
-    if not voice or voice == 'default':
-        audio_info_list = _tts_edge_parallel(speech_dict, image_info_list, speech_speed)
+    # 解析所选音色：cloud_parallel 类型直接走 Edge TTS 路径（含具体 edge_voice 名）
+    edge_voice_name = None
+    if (not voice) or voice == 'default':
+        edge_voice_name = VOICE  # 历史默认 zh-CN-XiaoxiaoNeural
+    else:
+        from voice_registry import VoiceRegistry as _VR
+        _meta = _VR(data_root).get_voice(voice)
+        if _meta and _meta.type == 'cloud_parallel' and _meta.edge_voice:
+            edge_voice_name = _meta.edge_voice
+    if edge_voice_name is not None:
+        audio_info_list = _tts_edge_parallel(speech_dict, image_info_list, speech_speed, edge_voice=edge_voice_name)
         _sync_last_segments_from_audio_info(audio_info_list)
         return audio_info_list
     from voice_registry import VoiceRegistry
@@ -893,10 +926,13 @@ def batch_generate_tts(speech_dict: Dict[int, str], image_info_list: List[Dict]=
     registry = VoiceRegistry(data_root)
     meta = registry.get_voice(voice)
     if meta is None or meta.type == 'cloud_parallel':
-        return _tts_edge_parallel(speech_dict, image_info_list, speech_speed)
+        # 云端音色：用 meta.edge_voice（若有）否则模块默认 VOICE
+        _ev = (meta.edge_voice if (meta and meta.edge_voice) else VOICE)
+        return _tts_edge_parallel(speech_dict, image_info_list, speech_speed, edge_voice=_ev)
     if meta.type != 'cosyvoice3':
         print(f'[WARN] 音色类型 {meta.type} 未支持，回退 Edge TTS')
-        return _tts_edge_parallel(speech_dict, image_info_list, speech_speed)
+        _ev = (meta.edge_voice if (meta and meta.edge_voice) else VOICE)
+        return _tts_edge_parallel(speech_dict, image_info_list, speech_speed, edge_voice=_ev)
     ref_audio = ''
     if meta.ref_audio:
         if os.path.isabs(meta.ref_audio):
@@ -1105,23 +1141,24 @@ SegmentData 列表，使各通道行为一致（与 generate_video 内的重建�
         seg.subtitle_text = audio_info.get('text', '')
         seg.audio_path = audio_path
         seg.audio_duration = float(audio_info.get('duration_seconds', 0.0) or 0.0)
+        seg.subtitle_cues = list(audio_info.get('word_boundaries') or [])
         seg.status = 'generated'
         segs.append(seg)
     _last_all_segments = segs
 _last_all_segments = []
 
-async def _tts_edge_parallel_async(speech_dict, info_by_id, speech_speed=1.0):
+async def _tts_edge_parallel_async(speech_dict, info_by_id, speech_speed=1.0, edge_voice=None):
     sem = asyncio.Semaphore(min(len(speech_dict), 8))
 
     async def _one(global_id, text, speed):
         async with sem:
-            return await tts_single_paragraph(global_id, text, speed=speed)
+            return await tts_single_paragraph(global_id, text, speed=speed, edge_voice=edge_voice)
     tasks = [_one(gid, speech_dict[gid], speech_speed) for gid in sorted(speech_dict.keys())]
     return await asyncio.gather(*tasks)
 
-def _tts_edge_parallel(speech_dict, info_by_id, speech_speed=1.0) -> List[Dict]:
+def _tts_edge_parallel(speech_dict, info_by_id, speech_speed=1.0, edge_voice=None) -> List[Dict]:
     """默认路径：并发调用 Edge TTS（并发上限 min(段落数, 8)）。全局 speech_speed 统一应用。"""
-    results = asyncio.run(_tts_edge_parallel_async(speech_dict, info_by_id, speech_speed))
+    results = asyncio.run(_tts_edge_parallel_async(speech_dict, info_by_id, speech_speed, edge_voice=edge_voice))
     for item in results:
         item['speech_speed'] = speech_speed
     return results

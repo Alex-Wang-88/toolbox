@@ -333,6 +333,7 @@ def estimate_seconds(image_count, subtitle_mode, profile=None, cache_hint=None):
         1
         for sample in (runtime_profile or {}).get("samples", [])
         if sample.get("subtitle_mode") == mode
+        and sample.get("voice_mode") == "clone"
     )
     confidence_factor = estimate_confidence_factor(mode, sample_count, use_warm=use_warm)
     return max(1, int(round(image_count * seconds_per_image * confidence_factor)))
@@ -388,6 +389,10 @@ def calibrated_mode_rates(profile):
     per_mode = {}
 
     for sample in samples:
+        # 本函数服务于 CosyVoice3 本地估算。旧样本没有 voice_mode，无法可靠
+        # 区分 Edge 与克隆，因此宁可忽略，避免高速云端样本污染本地推理速率。
+        if sample.get("voice_mode") != "clone":
+            continue
         mode = sample.get("subtitle_mode")
         if mode not in DEFAULT_SECONDS_PER_IMAGE:
             continue
@@ -470,7 +475,7 @@ def calibrated_mode_rates(profile):
     return rates
 
 
-def record_actual_run(image_count, subtitle_mode, elapsed_seconds, cache_hit=False):
+def record_actual_run(image_count, subtitle_mode, elapsed_seconds, cache_hit=False, voice_mode="clone"):
     image_count = max(1, int(image_count or 1))
     elapsed_seconds = max(1, int(elapsed_seconds or 1))
     mode = subtitle_mode if subtitle_mode in DEFAULT_SECONDS_PER_IMAGE else "on"
@@ -484,6 +489,7 @@ def record_actual_run(image_count, subtitle_mode, elapsed_seconds, cache_hit=Fal
         "elapsed_seconds": elapsed_seconds,
         "seconds_per_image": seconds_per_image,
         "cache_hit": bool(cache_hit),
+        "voice_mode": "cloud" if voice_mode == "cloud" else "clone",
         "created_at": datetime.now().isoformat(timespec="seconds"),
     })
     profile["samples"] = samples

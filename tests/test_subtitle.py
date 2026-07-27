@@ -59,6 +59,36 @@ class TestSubtitleGenerator(unittest.TestCase):
             self.assertEqual(seg.tts_text, expected)
             self.assertEqual(seg.status, "generated")
 
+    def test_edge_word_boundaries_drive_subtitle_timing(self):
+        """Edge 音色使用服务端真实词边界，不按字符比例估算。"""
+        segment = self._make_segment(1, 0, "前半句非常长，后半句", 5.0)
+        segment.subtitle_cues = [
+            {"start": 0.4, "end": 1.0, "text": "前半句非常长，"},
+            {"start": 3.2, "end": 4.6, "text": "后半句"},
+        ]
+        srt = self.gen.generate([segment])
+        self.assertIn("00:00:00,400 --> 00:00:03,200", srt)
+        self.assertIn("00:00:03,200 --> 00:00:04,600", srt)
+
+    def test_edge_word_boundaries_restore_ai_display(self):
+        segment = self._make_segment(1, 0, "AI 工具", 2.0)
+        segment.subtitle_cues = [
+            {"start": 0.1, "end": 0.8, "text": "A.I"},
+            {"start": 0.9, "end": 1.5, "text": " 工具"},
+        ]
+        srt = self.gen.generate([segment])
+        self.assertIn("AI 工具", srt)
+        self.assertNotIn("A.I", srt)
+
+    def test_edge_word_boundaries_preserve_manuscript_punctuation(self):
+        segment = self._make_segment(1, 0, "你好，世界。", 2.0)
+        segment.subtitle_cues = [
+            {"start": 0.1, "end": 0.7, "text": "你好"},
+            {"start": 0.9, "end": 1.6, "text": "世界"},
+        ]
+        srt = self.gen.generate([segment])
+        self.assertIn("你好，世界。", srt)
+
     def test_multiple_segments_same_page(self):
         """同页多段：段间停顿 300ms。"""
         segments = [

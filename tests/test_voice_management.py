@@ -36,6 +36,17 @@ def make_wav(duration_sec=5.0, leading_silence_sec=0.0):
 
 
 class VoiceValidationTests(unittest.TestCase):
+    def test_default_xiaoxiao_is_listed_only_once(self):
+        registry = VoiceRegistry(tempfile.mkdtemp())
+        voices = registry.list_voices()
+        xiaoxiao = [v for v in voices if v.edge_voice == "zh-CN-XiaoxiaoNeural"]
+        self.assertEqual([v.id for v in xiaoxiao], ["default"])
+        self.assertEqual(xiaoxiao[0].name, "晓晓（女声·温暖自然）")
+        self.assertEqual(
+            registry.get_voice("edge_zh-CN-XiaoxiaoNeural").id,
+            "default",
+        )
+
     def test_rejects_audio_shorter_than_three_seconds(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = os.path.join(temp_dir, "short.wav")

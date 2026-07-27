@@ -2,14 +2,14 @@
 """语音注册表 + 上传校验 + 跨进程安全的持久化。
 
 负责：
-- 默认（云端 Edge TTS）静态常量
+- 默认（云端 Edge TTS）静态常量：内置全部 zh-CN Edge TTS 音色（女声/男声）
 - 克隆音色清单的读写（app_data/voices/voices.json）
 - 上传音频的二次校验（格式 / 大小 / 时长）
 - 参考音频预处理（转 22050Hz 单声道 wav）
 
 注意：本模块**不 import torch / TTS**，避免在未安装或不可用环境下拖垮 import。
 本地克隆引擎为 CosyVoice3（跨进程常驻 Worker），音色 type 仅两类：
-- ``cloud_parallel``：云端 Edge TTS 并行（默认兜底）
+- ``cloud_parallel``：云端 Edge TTS 并行（默认兜底，内置多个 zh-CN 音色可选）
 - ``cosyvoice3``：CosyVoice 3 零样本本地克隆（独立 venv 常驻 Worker，复用 venv_cosyvoice，prompt_text 需 ``<|endofprompt|>`` 指令前缀）
 """
 
@@ -80,17 +80,62 @@ class VoiceMeta:
     language: str = "zh"
     created_at: str = ""
     sovits_lora: str = ""       # 已弃用字段（空=自动）
+    edge_voice: str = ""         # cloud_parallel 类型对应的 edge-tts 音色名（如 zh-CN-YunxiNeural）
+    gender: str = ""             # 音色性别 female | male | child（仅用于前端分组展示）
+    group: str = ""              # 前端分组标签：edge | cosyvoice3（空=自动推断）
 
 
-# 默认（云端 Edge TTS 并行）为代码静态常量，永不被误删/误改，不落盘。
-# 本地克隆音色不再有"预设"概念，
-# 所有克隆项均为用户训练得到、动态写入 voices.json。
-STATIC_VOICES = [
-    VoiceMeta("default", "默认（云端 Edge TTS 并行）", "cloud_parallel", deletable=False),
+# 内置 zh-CN Edge TTS 音色清单（静态常量，永不被误删/误改，不落盘）。
+# 数据来源：edge_tts.list_voices() 中 Locale 以 zh-CN 开头的条目。
+# id 命名规则：edge_<ShortName>，保证与克隆音色 id 空间不冲突。
+# 性别字段：female / male / child（child 用于男童声 Yunxia）。
+EDGE_TTS_VOICE_LIST = [
+    # —— 女声 ——
+    {"id": "edge_zh-CN-XiaoxiaoNeural",  "name": "晓晓（女声·温暖自然）",     "edge_voice": "zh-CN-XiaoxiaoNeural",  "gender": "female"},
+    {"id": "edge_zh-CN-XiaoyiNeural",   "name": "晓伊（女声·亲切柔和）",     "edge_voice": "zh-CN-XiaoyiNeural",   "gender": "female"},
+    {"id": "edge_zh-CN-liaoning-XiaobeiNeural", "name": "小贝（女声·东北口音）", "edge_voice": "zh-CN-liaoning-XiaobeiNeural", "gender": "female"},
+    {"id": "edge_zh-CN-shaanxi-XiaoniNeural",    "name": "小妮（女声·陕西口音）", "edge_voice": "zh-CN-shaanxi-XiaoniNeural",    "gender": "female"},
+    # —— 男声 ——
+    {"id": "edge_zh-CN-YunxiNeural",    "name": "云希（男声·年轻自然）",     "edge_voice": "zh-CN-YunxiNeural",    "gender": "male"},
+    {"id": "edge_zh-CN-YunjianNeural",  "name": "云健（男声·沉稳播音）",     "edge_voice": "zh-CN-YunjianNeural",  "gender": "male"},
+    {"id": "edge_zh-CN-YunyangNeural",  "name": "云扬（男声·新闻播报）",     "edge_voice": "zh-CN-YunyangNeural",  "gender": "male"},
+    {"id": "edge_zh-CN-YunxiaNeural",   "name": "云夏（男童声·活泼）",       "edge_voice": "zh-CN-YunxiaNeural",   "gender": "child"},
 ]
 
-# 不可被重命名 / 删除的静态 id 集合
-STATIC_IDS = {v.id for v in STATIC_VOICES}
+# 兼容旧调用："default" 作为别名指向首个 Edge TTS 音色（晓晓）。
+# 这样历史上存盘的 voice='default' 仍可正常解析为 Edge TTS 默认女声。
+EDGE_DEFAULT_VOICE_ID = "default"
+EDGE_DEFAULT_VOICE_NAME = "zh-CN-XiaoxiaoNeural"  # 实际的 edge-tts ShortName
+
+STATIC_VOICES = [
+    VoiceMeta(
+        id=item["id"],
+        name=item["name"],
+        type="cloud_parallel",
+        deletable=False,
+        edge_voice=item["edge_voice"],
+        gender=item["gender"],
+        group="edge",
+    )
+    for item in EDGE_TTS_VOICE_LIST
+    # 晓晓由下面的 "default" 兼容 id 唯一表示，避免前端出现两个相同音色。
+    if item["edge_voice"] != EDGE_DEFAULT_VOICE_NAME
+]
+
+# "default" 是晓晓的唯一展示项，同时兼容旧前端 / 旧存档。
+STATIC_VOICES.insert(0, VoiceMeta(
+    id=EDGE_DEFAULT_VOICE_ID,
+    name="晓晓（女声·温暖自然）",
+    type="cloud_parallel",
+    deletable=False,
+    edge_voice=EDGE_DEFAULT_VOICE_NAME,
+    gender="female",
+    group="edge",
+))
+
+# 不可被重命名 / 删除的静态 id 集合。保留旧晓晓 id，供历史请求兼容解析。
+_LEGACY_XIAOXIAO_ID = "edge_zh-CN-XiaoxiaoNeural"
+STATIC_IDS = {v.id for v in STATIC_VOICES} | {_LEGACY_XIAOXIAO_ID}
 
 
 class VoiceRegistry:
@@ -180,6 +225,8 @@ class VoiceRegistry:
         return result
 
     def get_voice(self, voice_id: str):
+        if voice_id == _LEGACY_XIAOXIAO_ID:
+            voice_id = EDGE_DEFAULT_VOICE_ID
         for v in STATIC_VOICES:
             if v.id == voice_id:
                 return v

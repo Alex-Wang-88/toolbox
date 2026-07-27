@@ -81,7 +81,22 @@ class SubtitleGenerator:
                 # 字幕太长时在段内拆分
                 sub_lines = self._split_long_line(seg.subtitle_text, MAX_SUBTITLE_CHARS)
 
-                if len(sub_lines) > 1:
+                timed_lines = self._lines_from_tts_cues(
+                    getattr(seg, "subtitle_cues", None),
+                    seg.audio_duration,
+                    seg.subtitle_text,
+                )
+                if timed_lines:
+                    for line_start, line_end, line in timed_lines:
+                        if line_end > line_start:
+                            srt_lines.append(self._format_entry(
+                                sub_index,
+                                start + line_start,
+                                min(start + line_end, total_duration),
+                                line,
+                            ))
+                            sub_index += 1
+                elif len(sub_lines) > 1:
                     # 按文字长度比例分配时间
                     durations = self._allocate_durations(sub_lines, seg.audio_duration)
                     cumulative = 0.0
@@ -111,6 +126,90 @@ class SubtitleGenerator:
                 current_time += INTER_PAGE_PAUSE
 
         return "\n".join(srt_lines) + "\n"
+
+    def _lines_from_tts_cues(self, cues, audio_duration: float, display_text: str = ""):
+        """把 Edge TTS WordBoundary 合并成可读字幕，保留真实发音时间。
+
+        每行在该行首词真正开始时出现，并在下一行首词开始时切换；因此语速、
+        句内停顿和不同音色的节奏变化都不会再用字符数猜测。
+        """
+        valid = []
+        for cue in cues or []:
+            try:
+                cue_start = max(0.0, float(cue["start"]))
+                cue_end = min(float(audio_duration), float(cue["end"]))
+                cue_text = str(cue.get("text", ""))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if cue_text and cue_end > cue_start:
+                # 当前唯一的发音改写：字幕仍显示原始缩写。
+                valid.append((cue_start, cue_end, cue_text.replace("A.I", "AI")))
+        if not valid:
+            return []
+        mapped_texts = self._map_cues_to_display_text(
+            [cue_text for _, _, cue_text in valid], display_text
+        )
+        valid = [
+            (cue_start, cue_end, mapped_text)
+            for (cue_start, cue_end, _), mapped_text in zip(valid, mapped_texts)
+        ]
+
+        groups = []
+        group_text = ""
+        group_start = 0.0
+        group_end = 0.0
+        for cue_start, cue_end, cue_text in valid:
+            if group_text and len(group_text + cue_text) > MAX_SUBTITLE_CHARS:
+                groups.append([group_start, group_end, group_text])
+                group_text = ""
+            if not group_text:
+                group_start = cue_start
+            group_text += cue_text
+            group_end = cue_end
+            if len(group_text) >= 6 and group_text.endswith(
+                ("，", "。", "！", "？", "；", "：", ",", ".", "!", "?", ";", ":")
+            ):
+                groups.append([group_start, group_end, group_text])
+                group_text = ""
+        if group_text:
+            groups.append([group_start, group_end, group_text])
+
+        # 让上一行持续显示到下一行真正开口，避免停顿时字幕闪烁消失。
+        for index in range(len(groups) - 1):
+            groups[index][1] = groups[index + 1][0]
+        groups[-1][1] = min(float(audio_duration), groups[-1][1])
+        return [tuple(group) for group in groups]
+
+    @staticmethod
+    def _map_cues_to_display_text(cue_texts, display_text: str):
+        """把词边界重新映射到原稿，保留标点、空格和原始缩写写法。"""
+        source = str(display_text or "")
+        if not source:
+            return cue_texts
+
+        def meaningful(char):
+            return bool(re.match(r"[\w\u4e00-\u9fff]", char, re.UNICODE))
+
+        result = []
+        cursor = 0
+        for cue_text in cue_texts:
+            target_length = sum(1 for char in cue_text if meaningful(char))
+            if target_length <= 0:
+                result.append(cue_text)
+                continue
+            start = cursor
+            consumed = 0
+            while cursor < len(source) and consumed < target_length:
+                if meaningful(source[cursor]):
+                    consumed += 1
+                cursor += 1
+            # 标点和空格属于前一个发音词，便于按原稿标点拆字幕行。
+            while cursor < len(source) and not meaningful(source[cursor]):
+                cursor += 1
+            result.append(source[start:cursor] if consumed == target_length else cue_text)
+        if result and cursor < len(source):
+            result[-1] += source[cursor:]
+        return result
 
     def _split_long_line(self, text: str, max_chars: int = 34) -> List[str]:
         """将过长的字幕文本拆分为多行。

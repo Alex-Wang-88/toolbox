@@ -208,6 +208,19 @@
             margin-top: 6px;
             min-height: 16px;
         }
+        /* ===== Edge TTS 二级菜单 ===== */
+        .voice-group { border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+        .voice-group + .voice-group { margin-top: 8px; }
+        .voice-group-summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; padding: 10px 12px; background: #f8fafc; color: var(--accent-dark); font-size: 13px; font-weight: 800; user-select: none; }
+        .voice-group-summary::-webkit-details-marker { display: none; }
+        .voice-group-arrow { display: inline-block; width: 12px; color: var(--muted); transition: transform .18s ease; font-size: 10px; }
+        .voice-group[open] > .voice-group-summary .voice-group-arrow { transform: rotate(90deg); }
+        .voice-group-title { flex: 1; min-width: 0; }
+        .voice-group-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 700; }
+        .voice-group-body { padding: 8px 8px 8px 12px; display: grid; gap: 8px; }
+        .voice-subgroup { display: grid; gap: 6px; }
+        .voice-subgroup-title { font-size: 11px; font-weight: 800; color: var(--muted); padding: 2px 0 0 2px; letter-spacing: 0.5px; }
+        .voice-group .voice-item { padding: 7px 10px; }
 
         .voice-create { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
         .voice-create > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 11px 13px; color: var(--accent-dark); font-size: 13px; font-weight: 800; }
@@ -426,7 +439,7 @@
                 </div>
                 <div class="voice-error" id="voiceError"></div>
                 <div class="hint" id="voiceHint">
-                    默认云端音色可直接使用；CosyVoice3 本地克隆音色需安装权重 / venv / Matcha-TTS 依赖，未就绪时会在音色卡片显示原因。
+                    Edge TTS 云端音色可直接使用；CosyVoice3 本地克隆音色需安装权重 / venv / Matcha-TTS 依赖，未就绪时会在音色卡片显示原因。
                 </div>
                 <details class="voice-create" id="voiceCreatePanel">
                     <summary>添加克隆音色</summary>
@@ -461,7 +474,7 @@
         <section class="panel">
             <div class="panel-head">
                 <div class="panel-title">输入文字生成音频</div>
-                <div class="count" id="selectedVoiceLabel">默认云端</div>
+                <div class="count" id="selectedVoiceLabel">晓晓（女声·温暖自然）</div>
             </div>
             <div class="panel-body">
                 <div class="block">
@@ -542,6 +555,7 @@
             const state = {
                 voices: [],
                 selectedVoiceId: 'default',
+                edgeExpandedState: null,  // null = 自动（选中在 edge 组时展开），true/false = 手动覆盖
                 generating: false,
                 history: [],
                 selectedVoiceFile: null,
@@ -644,10 +658,21 @@
                     voiceList.innerHTML = '<div class="hint">暂无可用音色</div>';
                     return;
                 }
-                voiceList.innerHTML = voices.map((v) => {
+                // 分组：edge = Edge TTS 云端（二级菜单），cosyvoice3 = 本地克隆
+                const edgeVoices = voices.filter((v) => (v.group === 'edge') || (v.type === 'cloud_parallel' && v.group !== 'cosyvoice3'));
+                const cloneVoices = voices.filter((v) => v.group === 'cosyvoice3' || v.type === 'cosyvoice3');
+                const edgeFemale = edgeVoices.filter((v) => v.gender === 'female');
+                const edgeMale = edgeVoices.filter((v) => v.gender === 'male');
+                const edgeChild = edgeVoices.filter((v) => v.gender === 'child');
+                const edgeOther = edgeVoices.filter((v) => !v.gender || (v.gender !== 'female' && v.gender !== 'male' && v.gender !== 'child'));
+
+                const selectedInEdge = edgeVoices.some((v) => v.id === state.selectedVoiceId);
+                const edgeExpanded = state.edgeExpandedState !== null ? state.edgeExpandedState : selectedInEdge;
+
+                function renderItem(v) {
                     const selected = v.id === state.selectedVoiceId ? ' selected' : '';
                     const unavailable = v.available === false ? ' unavailable' : '';
-                    const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : '默认云端';
+                    const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : 'Edge TTS 云端';
                     const statusLabel = v.available === false
                         ? (v.availability_reason || '当前不可用')
                         : typeLabel;
@@ -668,16 +693,60 @@
                             ${actions}
                         </div>
                     `;
-                }).join('');
+                }
+
+                function renderEdgeGroup(label, items) {
+                    if (!items.length) return '';
+                    const html = items.map(renderItem).join('');
+                    return `<div class="voice-subgroup"><div class="voice-subgroup-title">${escapeHtml(label)}</div>${html}</div>`;
+                }
+
+                const edgeHtml = !edgeVoices.length ? '' : `
+                    <details class="voice-group edge-group"${edgeExpanded ? ' open' : ''}>
+                        <summary class="voice-group-summary">
+                            <span class="voice-group-arrow">▶</span>
+                            <span class="voice-group-title">Edge TTS 云端音色</span>
+                            <span class="voice-group-count">${edgeVoices.length}</span>
+                        </summary>
+                        <div class="voice-group-body">
+                            ${renderEdgeGroup('女声', edgeFemale)}
+                            ${renderEdgeGroup('男声', edgeMale)}
+                            ${renderEdgeGroup('童声', edgeChild)}
+                            ${renderEdgeGroup('其他', edgeOther)}
+                        </div>
+                    </details>`;
+
+                const cloneHtml = !cloneVoices.length ? '' : `
+                    <details class="voice-group clone-group" open>
+                        <summary class="voice-group-summary">
+                            <span class="voice-group-arrow">▶</span>
+                            <span class="voice-group-title">CosyVoice3 本地克隆</span>
+                            <span class="voice-group-count">${cloneVoices.length}</span>
+                        </summary>
+                        <div class="voice-group-body">
+                            ${cloneVoices.map(renderItem).join('')}
+                        </div>
+                    </details>`;
+
+                voiceList.innerHTML = edgeHtml + cloneHtml;
                 updateSelectedLabel();
             }
 
             function updateSelectedLabel() {
                 const v = state.voices.find((x) => x.id === state.selectedVoiceId);
-                selectedVoiceLabel.textContent = v ? v.name : '默认云端';
+                selectedVoiceLabel.textContent = v ? v.name : '晓晓（女声·温暖自然）';
             }
 
             voiceList.addEventListener('click', (event) => {
+                // 组标题点击：切换展开/折叠（由 <details> 原生处理，这里同步手动状态）
+                const groupSummary = event.target.closest('.voice-group-summary');
+                if (groupSummary) {
+                    const group = groupSummary.closest('.voice-group');
+                    if (group && group.classList.contains('edge-group')) {
+                        state.edgeExpandedState = !group.hasAttribute('open');
+                    }
+                    return;
+                }
                 // 先判断是否点中操作按钮（重命名 / 导出 / 删除），点操作按钮时不触发选中
                 const actionBtn = event.target.closest('[data-action]');
                 if (actionBtn) {
@@ -971,7 +1040,9 @@
                     progressText.textContent = `${Math.round(progress)}% · ${task.message || '处理中...'}`;
                     const stageTitles = {
                         queued: '等待开始', prepare: '准备语音引擎', tts: '正在分段生成配音',
-                        finalize: '正在整理音频', video: '正在生成视频', completed: '生成完成'
+                        finalize: '正在整理音频', video: '正在生成视频',
+                        cancelling: '正在取消', cancelled: '已取消',
+                        failed: '生成失败', completed: '生成完成'
                     };
                     waitTitle.textContent = stageTitles[task.stage] || '生成音频中';
                     if (task.status === 'completed') { progressCard.classList.remove('indeterminate'); return task.result || {}; }
@@ -1029,7 +1100,7 @@
                     progressCard.classList.remove('active');
 
                     const voice = state.voices.find((v) => v.id === state.selectedVoiceId);
-                    const voiceName = voice ? voice.name : '默认云端';
+                    const voiceName = voice ? voice.name : '晓晓（女声·温暖自然）';
                     showSuccess(`音频生成成功（${voiceName} · ${text.length} 字）`);
 
                     // 添加到历史
