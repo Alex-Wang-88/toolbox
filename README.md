@@ -7,7 +7,7 @@
 - **多格式素材 → 讲解视频**：图片 / PDF / PPT / Word → 分页图片 → 带配音与字幕的视频
 - **多种 TTS 引擎**
   - `edge-tts`：微软在线 TTS，默认与兜底引擎（需联网）
-  - `CosyVoice3`（0.5B，阿里开源）：本地零样本语音克隆，运行在独立 venv 的常驻 Worker 子进程
+  - `CosyVoice3`（0.5B，阿里开源）：本地零样本语音克隆，运行在独立 venv 的常驻 Worker 子进程（**可选**，需 NVIDIA GPU ≥ 6GB 显存 + CUDA 12.8 驱动；无 GPU 时自动降级为 Edge TTS）
 - **视频合成**：MoviePy + FFmpeg（打包态自带，源码运行需单独安装或放到 `bin/`），支持字幕、配音、进度回调
 - **企业方案链接 → 智能体生成 Word → 复用文档转视频**（命令行入口）
 - **桌面启动器**：PyInstaller 打包为 Windows exe（含自带 FFmpeg 与 Python 运行时）
@@ -49,6 +49,15 @@ TOOLBOX/
 ├── requirements.txt     # 主服务依赖清单
 └── 项目说明书.md         # 完整项目手册（安装/配置/排错）
 ```
+
+## 硬件要求
+
+| 场景 | GPU | 说明 |
+|---|---|---|
+| **主线流程**（素材→视频） | 不需要 | Edge TTS 在线合成，仅需联网 |
+| **本地语音克隆**（CosyVoice3） | **NVIDIA GPU ≥ 6GB 显存**，CUDA 12.8 驱动 | 无 GPU / 非 N 卡时自动降级为 Edge TTS |
+
+详细配置见 [`项目说明书.md`](项目说明书.md) §5 与 [`docs/PORTABILITY.md`](docs/PORTABILITY.md)。
 
 ## 配置
 
