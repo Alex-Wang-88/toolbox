@@ -87,4 +87,4 @@ echo
 echo "=========================================="
 echo
 
-python src/web_server.py
+python src/app_launcher.py

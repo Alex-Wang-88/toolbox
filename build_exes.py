@@ -3,7 +3,7 @@
 
 构建前根据变体写入仓库根目录的 variant.txt（gpu/cpu）。PyInstaller 的运行时钩子
 build_hooks/set_variant.py 在 exe 启动时读取它并设置 os.environ['APP_VARIANT']，
-TOOLBOX.USE_GPU_ACCEL 据此决定启用/关闭 GPU（NVENC）加速。
+toolbox.USE_GPU_ACCEL 据此决定启用/关闭 GPU（NVENC）加速。
 
 用法（在 py311 venv 中执行）：
     python build_exes.py

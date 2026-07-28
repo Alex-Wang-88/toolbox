@@ -23,6 +23,11 @@ import time
 import json
 import shutil
 
+if __name__ != "__main__" and "pytest" in sys.modules:
+    import pytest
+
+    pytest.skip("手工端到端脚本，需要真实 PDF、网络与本地语音模型", allow_module_level=True)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)  # 项目根（src 的上一级）
 sys.path.insert(0, HERE)
@@ -55,7 +60,7 @@ _load_env(Path(ROOT) / ".env")
 
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-import TOOLBOX as pipeline
+import toolbox as pipeline
 import document_converter
 from voice_registry import VoiceRegistry
 from multi_tts_voice import MultiTtsWorkerClient

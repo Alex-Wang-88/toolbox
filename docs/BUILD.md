@@ -30,7 +30,7 @@ python -m PyInstaller --noconfirm --clean config/TOOLBOX.spec
 python -m PyInstaller --noconfirm --clean --windowed `
   --name "TOOLBOX" `
   --add-data "static/index.html;static" `
-  --hidden-import TOOLBOX `
+  --hidden-import toolbox `
   --hidden-import hardware_profile `
   --hidden-import document_converter `
   --hidden-import edge_tts `
@@ -111,7 +111,7 @@ DATA_FILES = [
 OPTIONS = {
     'argv_emulation': False,
     'packages': [
-        'TOOLBOX', 'hardware_profile', 'document_converter',
+        'toolbox', 'hardware_profile', 'document_converter',
         'edge_tts', 'pysrt', 'requests',
         'moviepy', 'imageio', 'imageio_ffmpeg',
         'PIL', 'fitz', 'docx', 'lxml',
@@ -119,7 +119,7 @@ OPTIONS = {
         'numpy', 'asyncio',
     ],
     'includes': [
-        'TOOLBOX', 'hardware_profile', 'document_converter',
+        'toolbox', 'hardware_profile', 'document_converter',
         'edge_tts', 'pysrt',
     ],
     'excludes': [

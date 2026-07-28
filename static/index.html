@@ -342,6 +342,20 @@
         .voice-actions button.del { background: #f3e3e1; color: var(--danger); }
         .voice-error { color: var(--danger); font-size: 12px; margin-top: 6px; min-height: 1px; }
 
+        /* ===== 音色二级分组 ===== */
+        .voice-group { border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+        .voice-group + .voice-group { margin-top: 8px; }
+        .voice-group-summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; padding: 10px 12px; background: #f8fafc; color: var(--accent-dark); font-size: 13px; font-weight: 800; user-select: none; }
+        .voice-group-summary::-webkit-details-marker { display: none; }
+        .voice-group-arrow { display: inline-block; width: 12px; color: var(--muted); transition: transform .18s ease; font-size: 10px; }
+        .voice-group[open] > .voice-group-summary .voice-group-arrow { transform: rotate(90deg); }
+        .voice-group-title { flex: 1; min-width: 0; }
+        .voice-group-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 700; }
+        .voice-group-body { padding: 8px 8px 8px 12px; display: grid; gap: 8px; }
+        .voice-subgroup { display: grid; gap: 6px; }
+        .voice-subgroup-title { font-size: 11px; font-weight: 800; color: var(--muted); padding: 2px 0 0 2px; letter-spacing: 0.5px; }
+        .voice-group .voice-item { padding: 7px 10px; }
+
         .voice-create { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
         .voice-create > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 10px 12px; color: var(--accent-dark); font-size: 13px; font-weight: 800; }
         .voice-create > summary::-webkit-details-marker { display: none; }
@@ -381,6 +395,11 @@
         .speed-control input { width: 100%; accent-color: var(--accent); }
         .speed-value { min-width: 48px; text-align: right; color: var(--accent-dark); font-weight: 800; font-variant-numeric: tabular-nums; }
         .speed-scale { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
+        .background-music-actions { display: flex; gap: 8px; margin-top: 8px; }
+        .background-music-actions .secondary { flex: 1; min-height: 34px; }
+        .background-music-status { min-height: 18px; margin-top: 7px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+        .background-music-status.ready { color: #347552; font-weight: 700; }
+        .background-music-status.error { color: var(--danger); }
         .manuscript-validation { display: none; margin: 0 16px 14px; padding: 9px 12px; border-radius: 8px; background: #fff5e6; color: #9a5b00; font-size: 12px; }
         .manuscript-validation.active { display: block; }
 
@@ -786,6 +805,8 @@
                     <div class="gen-row"><span class="k">视频画质</span><span class="v">1080p 高清</span></div>
                     <div class="gen-row"><span class="k">字幕模式</span><span class="v" id="genSubtitle">—</span></div>
                     <div class="gen-row"><span class="k">所用音色</span><span class="v" id="genVoice">—</span></div>
+                    <div class="gen-row"><span class="k">配音音量</span><span class="v" id="genVoiceVolume">100%</span></div>
+                    <div class="gen-row"><span class="k">背景音乐</span><span class="v" id="genBackgroundMusic">未添加</span></div>
                     <div class="gen-row"><span class="k">文稿页数</span><span class="v" id="genPages">—</span></div>
                     <div class="gen-row"><span class="k">预计耗时</span><span class="v" id="genEstimate">估算中...</span></div>
                     <div class="gen-row"><span class="k">保存目录</span><span class="v" id="genOutputFolder">—</span></div>
@@ -838,6 +859,15 @@
                     </div>
 
                     <div class="block">
+                        <div class="field-label">配音音量</div>
+                        <div class="speed-control">
+                            <input type="range" id="voiceVolumeSlider" min="0" max="200" step="5" value="100" aria-label="配音音量">
+                            <span class="speed-value" id="voiceVolumeValue">100%</span>
+                            <div class="speed-scale"><span>静音</span><span>原音</span><span>增强</span></div>
+                        </div>
+                    </div>
+
+                    <div class="block">
                         <div class="field-label">语音 / 音色</div>
                         <div class="voice-list" id="voiceList" role="radiogroup" aria-label="选择配音音色"></div>
                         <div class="voice-error" id="voiceError" role="alert"></div>
@@ -867,6 +897,27 @@
                                 </form>
                             </div>
                         </details>
+                    </div>
+
+                    <div class="block">
+                        <div class="field-label">背景音乐</div>
+                        <input id="backgroundMusicInput" type="file" accept=".mp3,.wav,.m4a,.aac,audio/mpeg,audio/wav,audio/mp4,audio/aac" hidden>
+                        <div class="voice-drop" id="backgroundMusicDrop" role="button" tabindex="0" aria-controls="backgroundMusicInput">
+                            <strong>选择或拖入背景音乐</strong>
+                            <span>支持 MP3 / WAV / M4A / AAC，单个文件不超过 50MB</span>
+                        </div>
+                        <div class="background-music-status" id="backgroundMusicStatus">尚未添加背景音乐</div>
+                        <audio class="voice-audio-preview" id="backgroundMusicPreview" controls preload="metadata"></audio>
+                        <div class="background-music-actions">
+                            <button class="secondary" id="backgroundMusicReplaceBtn" type="button" disabled>替换</button>
+                            <button class="secondary danger" id="backgroundMusicRemoveBtn" type="button" disabled>移除</button>
+                        </div>
+                        <div class="speed-control" style="margin-top:10px">
+                            <input type="range" id="backgroundMusicVolumeSlider" min="0" max="100" step="5" value="15" aria-label="背景音乐音量">
+                            <span class="speed-value" id="backgroundMusicVolumeValue">15%</span>
+                            <div class="speed-scale"><span>静音</span><span>轻柔</span><span>响亮</span></div>
+                        </div>
+                        <div class="hint">音乐会自动循环或裁剪到视频长度，并在结尾淡出。</div>
                     </div>
 
                     <div class="block">
@@ -1016,6 +1067,16 @@
         const voiceConsentInput = document.getElementById('voiceConsentInput');
         const voiceCreateBtn = document.getElementById('voiceCreateBtn');
         const voiceCreateStatus = document.getElementById('voiceCreateStatus');
+        const voiceVolumeSlider = document.getElementById('voiceVolumeSlider');
+        const voiceVolumeValue = document.getElementById('voiceVolumeValue');
+        const backgroundMusicInput = document.getElementById('backgroundMusicInput');
+        const backgroundMusicDrop = document.getElementById('backgroundMusicDrop');
+        const backgroundMusicStatus = document.getElementById('backgroundMusicStatus');
+        const backgroundMusicPreview = document.getElementById('backgroundMusicPreview');
+        const backgroundMusicReplaceBtn = document.getElementById('backgroundMusicReplaceBtn');
+        const backgroundMusicRemoveBtn = document.getElementById('backgroundMusicRemoveBtn');
+        const backgroundMusicVolumeSlider = document.getElementById('backgroundMusicVolumeSlider');
+        const backgroundMusicVolumeValue = document.getElementById('backgroundMusicVolumeValue');
 
         /* ===== 常量 ===== */
         const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
@@ -1044,8 +1105,10 @@
         let previewTrigger = null;
         let selectedVoiceId = 'default';
         let currentVoices = [];
+        const voiceGroupExpanded = { edge: false, clone: false };
         let selectedVoiceFile = null;
         let selectedVoiceFileUrl = '';
+        let backgroundMusic = null;
         let manuscriptBusy = false;          // 生成文稿中（Step 1 loading）
         let manuscriptDirty = false;
         let currentStep = 1;
@@ -1061,7 +1124,9 @@
         let manuscriptStartedAt = 0;
         let manuscriptElapsedTimer = null;
         let manuscriptLogKeys = new Set();
-        const PROJECT_SESSION_KEY = 'TOOLBOX_current_project_v1';
+        const PROJECT_SESSION_KEY = 'TOOLBOX_current_project_v2';
+        const LEGACY_PROJECT_SESSION_KEY = 'TOOLBOX_current_project_v1';
+        const VIDEO_VOICE_VOLUME_KEY = 'toolbox_video_voice_volume';
         const STEP_PATHS = { 1: '/materials', 2: '/manuscript', 3: '/generate' };
 
         appNoticeClose.addEventListener('click', () => {
@@ -1143,7 +1208,7 @@
         function persistProjectSession() {
             if (!isPrepared || !preparedImages.length) return;
             const state = {
-                version: 1,
+                version: 2,
                 step: currentStep,
                 preparedImages: serializablePreparedImages(),
                 manuscriptData: manuscriptData.map((m) => ({
@@ -1153,6 +1218,9 @@
                 msFilename: msFilename.value,
                 outputName: msFilename.value,
                 selectedVoiceId,
+                voiceVolume: getVoiceVolume(),
+                backgroundMusic,
+                backgroundMusicVolume: getBackgroundMusicVolume(),
                 subtitleMode,
                 currentTaskId: isRunning ? currentTaskId : null,
                 startedAt: isRunning ? startedAt : null,
@@ -1170,7 +1238,13 @@
 
         function restoreProjectSession() {
             let state = null;
-            try { state = JSON.parse(localStorage.getItem(PROJECT_SESSION_KEY) || 'null'); } catch (e) {}
+            try {
+                state = JSON.parse(
+                    localStorage.getItem(PROJECT_SESSION_KEY)
+                    || localStorage.getItem(LEGACY_PROJECT_SESSION_KEY)
+                    || 'null'
+                );
+            } catch (e) {}
             if (!state || !Array.isArray(state.preparedImages) || !state.preparedImages.length) {
                 goToStep(1, { replace: true });
                 return;
@@ -1191,6 +1265,14 @@
             }));
             msFilename.value = state.msFilename || state.outputName || '';
             selectedVoiceId = state.selectedVoiceId || 'default';
+            setVoiceVolume(state.voiceVolume == null ? loadVideoVoiceVolume() : state.voiceVolume);
+            backgroundMusic = state.backgroundMusic && state.backgroundMusic.music_id
+                ? state.backgroundMusic
+                : null;
+            setBackgroundMusicVolume(
+                state.backgroundMusicVolume == null ? 0.15 : state.backgroundMusicVolume
+            );
+            renderBackgroundMusic();
             subtitleMode = state.subtitleMode === 'off' ? 'off' : 'on';
             segmentButtons.forEach((button) => {
                 const active = button.dataset.mode === subtitleMode;
@@ -1273,6 +1355,9 @@
         loadVoices();
         loadConfig();
         loadGpuVoiceStatus();
+        setVoiceVolume(loadVideoVoiceVolume());
+        setBackgroundMusicVolume(0.15);
+        renderBackgroundMusic();
         restoreProjectSession();
 
         chooseOutputBtn.addEventListener('click', async () => {
@@ -1935,6 +2020,10 @@
             document.getElementById('genName').textContent = msFilename.value.trim() || '（自动命名）';
             document.getElementById('genSubtitle').textContent = subLabel;
             document.getElementById('genVoice').textContent = voice ? voice.name : selectedVoiceId;
+            document.getElementById('genVoiceVolume').textContent = `${Math.round(getVoiceVolume() * 100)}%`;
+            document.getElementById('genBackgroundMusic').textContent = backgroundMusic
+                ? `${backgroundMusic.name} · ${Math.round(getBackgroundMusicVolume() * 100)}%`
+                : '未添加';
             document.getElementById('genPages').textContent = `${manuscriptData.length} 页`;
             document.getElementById('genOutputFolder').textContent = outputPath.value.trim() || '—';
             document.getElementById('genOutputFolder').title = outputPath.value.trim();
@@ -2000,6 +2089,146 @@
             });
         })();
 
+        /* ===== 配音音量与背景音乐 ===== */
+        function getVoiceVolume() {
+            const value = parseFloat(voiceVolumeSlider?.value || '100');
+            return Math.max(0, Math.min(2, (Number.isFinite(value) ? value : 100) / 100));
+        }
+
+        function setVoiceVolume(value) {
+            const normalized = Math.max(0, Math.min(2, Number(value) || 0));
+            const percent = Math.round(normalized * 100 / 5) * 5;
+            if (voiceVolumeSlider) voiceVolumeSlider.value = String(percent);
+            if (voiceVolumeValue) voiceVolumeValue.textContent = `${percent}%`;
+        }
+
+        function loadVideoVoiceVolume() {
+            try {
+                const value = parseFloat(localStorage.getItem(VIDEO_VOICE_VOLUME_KEY));
+                return Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : 1;
+            } catch (e) { return 1; }
+        }
+
+        function getBackgroundMusicVolume() {
+            const value = parseFloat(backgroundMusicVolumeSlider?.value || '15');
+            return Math.max(0, Math.min(1, (Number.isFinite(value) ? value : 15) / 100));
+        }
+
+        function setBackgroundMusicVolume(value) {
+            const normalized = Math.max(0, Math.min(1, Number(value) || 0));
+            const percent = Math.round(normalized * 100 / 5) * 5;
+            if (backgroundMusicVolumeSlider) backgroundMusicVolumeSlider.value = String(percent);
+            if (backgroundMusicVolumeValue) backgroundMusicVolumeValue.textContent = `${percent}%`;
+            if (backgroundMusicPreview) backgroundMusicPreview.volume = normalized;
+        }
+
+        function renderBackgroundMusic() {
+            const ready = Boolean(backgroundMusic?.music_id);
+            backgroundMusicStatus.className = `background-music-status${ready ? ' ready' : ''}`;
+            backgroundMusicStatus.textContent = ready
+                ? `${backgroundMusic.name} · ${formatDuration(backgroundMusic.duration || 0)}`
+                : '尚未添加背景音乐';
+            backgroundMusicPreview.classList.toggle('active', ready);
+            if (ready) {
+                backgroundMusicPreview.src = backgroundMusic.preview_url;
+                backgroundMusicPreview.volume = getBackgroundMusicVolume();
+            } else {
+                backgroundMusicPreview.pause();
+                backgroundMusicPreview.removeAttribute('src');
+                backgroundMusicPreview.load();
+            }
+            backgroundMusicReplaceBtn.disabled = !ready || isRunning;
+            backgroundMusicRemoveBtn.disabled = !ready || isRunning;
+            backgroundMusicDrop.classList.toggle('hidden', ready);
+            updateGenerateSummary();
+        }
+
+        async function deleteBackgroundMusic(music, silent = false) {
+            if (!music?.music_id) return;
+            try {
+                const response = await apiFetch(`/background-music/${encodeURIComponent(music.music_id)}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok && response.status !== 404) {
+                    throw new Error(await readError(response) || '移除背景音乐失败');
+                }
+            } catch (error) {
+                if (!silent) showNotice(formatFetchError(error), 'error');
+            }
+        }
+
+        async function uploadBackgroundMusic(file) {
+            if (!file || isRunning) return;
+            backgroundMusicStatus.className = 'background-music-status';
+            backgroundMusicStatus.textContent = `正在上传 ${file.name}…`;
+            backgroundMusicInput.disabled = true;
+            const form = new FormData();
+            form.append('file', file);
+            try {
+                const response = await apiFetch('/background-music', { method: 'POST', body: form });
+                const result = await safeReadJson(response);
+                if (!response.ok) throw new Error(result.error || '背景音乐上传失败');
+                const previous = backgroundMusic;
+                backgroundMusic = result;
+                renderBackgroundMusic();
+                scheduleProjectPersist();
+                if (previous?.music_id && previous.music_id !== result.music_id) {
+                    deleteBackgroundMusic(previous, true);
+                }
+                addLog(`已添加背景音乐：${result.name}`, 'success');
+            } catch (error) {
+                backgroundMusicStatus.className = 'background-music-status error';
+                backgroundMusicStatus.textContent = formatFetchError(error);
+            } finally {
+                backgroundMusicInput.disabled = false;
+                backgroundMusicInput.value = '';
+            }
+        }
+
+        voiceVolumeSlider.addEventListener('input', () => {
+            const value = getVoiceVolume();
+            setVoiceVolume(value);
+            try { localStorage.setItem(VIDEO_VOICE_VOLUME_KEY, String(value)); } catch (e) {}
+            updateGenerateSummary();
+            scheduleProjectPersist();
+        });
+        backgroundMusicVolumeSlider.addEventListener('input', () => {
+            setBackgroundMusicVolume(getBackgroundMusicVolume());
+            updateGenerateSummary();
+            scheduleProjectPersist();
+        });
+        backgroundMusicDrop.addEventListener('click', () => backgroundMusicInput.click());
+        backgroundMusicDrop.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                backgroundMusicInput.click();
+            }
+        });
+        backgroundMusicDrop.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            backgroundMusicDrop.classList.add('dragover');
+        });
+        backgroundMusicDrop.addEventListener('dragleave', () => backgroundMusicDrop.classList.remove('dragover'));
+        backgroundMusicDrop.addEventListener('drop', (event) => {
+            event.preventDefault();
+            backgroundMusicDrop.classList.remove('dragover');
+            uploadBackgroundMusic(event.dataTransfer.files?.[0]);
+        });
+        backgroundMusicInput.addEventListener('change', () => uploadBackgroundMusic(backgroundMusicInput.files?.[0]));
+        backgroundMusicReplaceBtn.addEventListener('click', () => backgroundMusicInput.click());
+        backgroundMusicRemoveBtn.addEventListener('click', async () => {
+            const previous = backgroundMusic;
+            backgroundMusic = null;
+            renderBackgroundMusic();
+            scheduleProjectPersist();
+            await deleteBackgroundMusic(previous);
+            addLog('已移除背景音乐。');
+        });
+        backgroundMusicPreview.addEventListener('error', () => {
+            if (!backgroundMusic) return;
+            backgroundMusicStatus.className = 'background-music-status error';
+            backgroundMusicStatus.textContent = '背景音乐文件已失效，请重新上传';
+        });
         async function startGeneration() {
             if (isRunning) return;
             if (!isManuscriptComplete()) {
@@ -2040,6 +2269,9 @@
                         output_mode: '1080p',
                         voice: selectedVoiceId,
                         speech_speed: getSpeechSpeed(),
+                        voice_volume: getVoiceVolume(),
+                        background_music_id: backgroundMusic?.music_id || null,
+                        background_music_volume: getBackgroundMusicVolume(),
                         output_name: msFilename.value.trim(),
                         source_names: selectedFiles.map((file) => file.name),
                         manuscript: manuscriptPayload,
@@ -2289,6 +2521,11 @@
         /* ===== 清空 / 取消 ===== */
         function startNewProject() {
             if (isRunning) return;
+            const previousBackgroundMusic = backgroundMusic;
+            backgroundMusic = null;
+            deleteBackgroundMusic(previousBackgroundMusic, true);
+            setBackgroundMusicVolume(0.15);
+            renderBackgroundMusic();
             selectedFiles.forEach((file) => { if (file.previewUrl) URL.revokeObjectURL(file.previewUrl); });
             selectedFiles = [];
             uploadedFilePaths = [];
@@ -2304,6 +2541,7 @@
             downloadSection.innerHTML = '';
             progressSection.classList.remove('active');
             try { localStorage.removeItem(PROJECT_SESSION_KEY); } catch (e) {}
+            try { localStorage.removeItem(LEGACY_PROJECT_SESSION_KEY); } catch (e) {}
             updatePreview();
             updateControls();
             refreshEstimate();
@@ -2353,6 +2591,11 @@
             stepNavButtons.forEach((button) => { if (isRunning) button.disabled = true; });
             const speedSlider = document.getElementById('speedSlider');
             if (speedSlider) speedSlider.disabled = isRunning;
+            voiceVolumeSlider.disabled = isRunning;
+            backgroundMusicVolumeSlider.disabled = isRunning;
+            backgroundMusicInput.disabled = isRunning;
+            backgroundMusicReplaceBtn.disabled = isRunning || !backgroundMusic;
+            backgroundMusicRemoveBtn.disabled = isRunning || !backgroundMusic;
             [voiceFileInput, voiceNameInput, voiceRefTextInput, voiceConsentInput, voiceCreateBtn].forEach((element) => {
                 element.disabled = isRunning;
             });
@@ -2362,6 +2605,15 @@
 
         /* ===== 语音 / 音色管理 ===== */
         voiceList.addEventListener('click', (event) => {
+            const groupSummary = event.target.closest('.voice-group-summary');
+            if (groupSummary) {
+                const group = groupSummary.closest('.voice-group');
+                if (group) {
+                    const key = group.classList.contains('edge-group') ? 'edge' : 'clone';
+                    voiceGroupExpanded[key] = !group.open;
+                }
+                return;
+            }
             const item = event.target.closest('.voice-item');
             if (!item) return;
             const id = item.dataset.id;
@@ -2414,10 +2666,23 @@
         }
 
         function renderVoices(voices) {
-            voiceList.innerHTML = voices.map((v) => {
+            const edgeVoices = voices.filter((v) =>
+                v.group === 'edge' || (v.type === 'cloud_parallel' && v.group !== 'cosyvoice3')
+            );
+            const cloneVoices = voices.filter((v) =>
+                v.group === 'cosyvoice3' || v.type === 'cosyvoice3'
+            );
+            const edgeFemale = edgeVoices.filter((v) => v.gender === 'female');
+            const edgeMale = edgeVoices.filter((v) => v.gender === 'male');
+            const edgeChild = edgeVoices.filter((v) => v.gender === 'child');
+            const edgeOther = edgeVoices.filter((v) =>
+                !v.gender || !['female', 'male', 'child'].includes(v.gender)
+            );
+
+            function renderItem(v) {
                 const selected = v.id === selectedVoiceId ? ' selected' : '';
                 const unavailable = v.available === false ? ' unavailable' : '';
-                const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : '默认云端';
+                const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : 'Edge TTS 云端';
                 const availabilityLabel = v.availability_reason ? ` · ${v.availability_reason}` : '';
                 const actionParts = [];
                 if (v.deletable) {
@@ -2435,7 +2700,45 @@
                         </span>
                         ${actions}
                     </div>`;
-            }).join('');
+            }
+
+            function renderEdgeSubgroup(label, items) {
+                if (!items.length) return '';
+                return `
+                    <div class="voice-subgroup">
+                        <div class="voice-subgroup-title">${escapeHtml(label)}</div>
+                        ${items.map(renderItem).join('')}
+                    </div>`;
+            }
+
+            const edgeHtml = !edgeVoices.length ? '' : `
+                <details class="voice-group edge-group"${voiceGroupExpanded.edge ? ' open' : ''}>
+                    <summary class="voice-group-summary">
+                        <span class="voice-group-arrow">▶</span>
+                        <span class="voice-group-title">Edge TTS 云端音色</span>
+                        <span class="voice-group-count">${edgeVoices.length}</span>
+                    </summary>
+                    <div class="voice-group-body">
+                        ${renderEdgeSubgroup('女声', edgeFemale)}
+                        ${renderEdgeSubgroup('男声', edgeMale)}
+                        ${renderEdgeSubgroup('童声', edgeChild)}
+                        ${renderEdgeSubgroup('其他', edgeOther)}
+                    </div>
+                </details>`;
+
+            const cloneHtml = !cloneVoices.length ? '' : `
+                <details class="voice-group clone-group"${voiceGroupExpanded.clone ? ' open' : ''}>
+                    <summary class="voice-group-summary">
+                        <span class="voice-group-arrow">▶</span>
+                        <span class="voice-group-title">CosyVoice3 本地克隆</span>
+                        <span class="voice-group-count">${cloneVoices.length}</span>
+                    </summary>
+                    <div class="voice-group-body">
+                        ${cloneVoices.map(renderItem).join('')}
+                    </div>
+                </details>`;
+
+            voiceList.innerHTML = edgeHtml + cloneHtml;
         }
 
         function updateVoiceControls() {

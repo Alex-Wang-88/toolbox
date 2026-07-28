@@ -52,7 +52,7 @@ _load_env(Path(ROOT) / ".env")
 
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-import TOOLBOX as pipeline
+import toolbox as pipeline
 import document_converter
 from voice_registry import VoiceRegistry
 from multi_tts_voice import MultiTtsWorkerClient

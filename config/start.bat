@@ -1,7 +1,7 @@
 @echo off
-:: 设置命令行编码为UTF-8
+rem 设置命令行编码为UTF-8
 chcp 65001 >nul
-:: 设置工作目录为项目根目录（config/ 的上一级）
+rem 设置工作目录为项目根目录（config/ 的上一级）
 cd /d "%~dp0\.."
 
 set "PROJECT_ROOT=%CD%"
@@ -13,33 +13,21 @@ echo     TOOLBOX - 启动服务
 echo ==========================================
 echo.
 
-:: ---- 虚拟环境自愈（跨机器可移植性关键）----
-:: 选择用于“新建 venv”的基础解释器：
-::   优先用随工程携带的 runtime\python\python.exe（若存在）；
-::   否则回退系统 PATH 上的 python（新机器上需自带 Python 3.13）。
+rem ---- 虚拟环境自愈（跨机器可移植性关键）----
+rem 选择用于“新建 venv”的基础解释器：
+rem   优先用随工程携带的 runtime\python\python.exe（若存在）；
+rem   否则回退系统 PATH 上的 python（新机器上需自带 Python 3.13）。
 set "BASE_PYTHON=python"
 if exist "%PROJECT_ROOT%\runtime\python\python.exe" (
     set "BASE_PYTHON=%PROJECT_ROOT%\runtime\python\python.exe"
 )
 
 set "NEED_BUILD=0"
-if not exist "%PYVENV_CFG%" (
-    set "NEED_BUILD=1"
-) else (
-    :: 读取 pyvenv.cfg 的 home 行，检测其指向的 python 是否真实存在
-    set "VENV_HOME="
-    for /f "usebackq tokens=1,* delims==" %%A in ("%PYVENV_CFG%") do (
-        if /i "%%A"=="home" set "VENV_HOME=%%B"
-    )
-    :: 去掉引号、前导空格与尾部反斜杠（home = C:\... 取值带前导空格，必须剥离）
-    set "VENV_HOME=%VENV_HOME:"=%"
-    if defined VENV_HOME (
-        for /f "tokens=* delims= " %%S in ("%VENV_HOME%") do set "VENV_HOME=%%S"
-        if "%VENV_HOME:~-1%"=="\" set "VENV_HOME=%VENV_HOME:~0,-1%"
-    )
-    if not exist "%VENV_HOME%\python.exe" (
-        set "NEED_BUILD=1"
-    )
+if not exist "%PYVENV_CFG%" set "NEED_BUILD=1"
+if not exist "%VENV_DIR%\Scripts\python.exe" set "NEED_BUILD=1"
+if "%NEED_BUILD%"=="0" (
+    "%VENV_DIR%\Scripts\python.exe" -c "import sys" >nul 2>nul
+    if errorlevel 1 set "NEED_BUILD=1"
 )
 
 if "%NEED_BUILD%"=="1" (
@@ -83,7 +71,9 @@ if errorlevel 1 (
 
 echo.
 echo [2/3] 检查 FFmpeg...
-ffmpeg -version >nul 2>nul
+set "FFMPEG_CMD=ffmpeg"
+if exist "%PROJECT_ROOT%\bin\ffmpeg\ffmpeg.exe" set "FFMPEG_CMD=%PROJECT_ROOT%\bin\ffmpeg\ffmpeg.exe"
+"%FFMPEG_CMD%" -version >nul 2>nul
 if errorlevel 1 (
     echo [WARN] 未检测到 FFmpeg，视频合成阶段可能会失败
     echo [WARN] Windows 可尝试: winget install ffmpeg  （或用 LOCAL_TTS_FFMPEG_PATH 指定路径）
@@ -94,13 +84,13 @@ if errorlevel 1 (
 echo.
 echo [3/3] 启动 Web 服务...
 echo.
-echo 访问地址: http://localhost:5000
+echo 网页将在服务就绪后自动打开
 echo 按 Ctrl+C 停止服务
 echo.
 echo ==========================================
 echo.
 
-:: 启动Flask服务（venv 已激活，python 即 .venv 解释器）
-python src\web_server.py
+rem 启动桌面启动器（venv 已激活，python 即 .venv 解释器）
+python src\app_launcher.py
 
 pause

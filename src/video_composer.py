@@ -72,7 +72,9 @@ class VideoComposer:
 
     def compose(self, image_infos: List[dict], all_segments: List[SegmentData],
                 srt_path: str, output_path: str, mode: str = "1080p",
-                include_subtitles: bool = True) -> str:
+                include_subtitles: bool = True, voice_volume: float = 1.0,
+                background_music_path: Optional[str] = None,
+                background_music_volume: float = 0.15) -> str:
         """合成视频。
 
         Args:
@@ -113,7 +115,10 @@ class VideoComposer:
                 temp_video = output_path.replace(".mp4", "_nosub_tmp.mp4")
 
             self._encode_video(valid_images, page_durations, audio_path,
-                               temp_video, width, height, fps, use_nvenc)
+                               temp_video, width, height, fps, use_nvenc,
+                               voice_volume=voice_volume,
+                               background_music_path=background_music_path,
+                               background_music_volume=background_music_volume)
 
             # 烧录字幕
             if include_subtitles and srt_path:
@@ -355,7 +360,9 @@ class VideoComposer:
     def _encode_video(self, images: List[dict], page_durations: dict,
                       audio_path: str, output_path: str,
                       width: int, height: int, fps: int,
-                      use_nvenc: bool) -> None:
+                      use_nvenc: bool, voice_volume: float = 1.0,
+                      background_music_path: Optional[str] = None,
+                      background_music_volume: float = 0.15) -> None:
         """编码无字幕视频（一步完成）。
 
         使用 -loop 1 -t <dur> 为每张图片设定时长，letterbox scale+pad，NVENC 编码。
@@ -386,11 +393,45 @@ class VideoComposer:
                 "-t", f"{dur:.3f}", "-i", info["file_path"],
             ]
 
-        # 添加音频输入
+        # 添加旁白和可选背景音乐输入
         inputs += ["-i", audio_path]
+        has_background_music = bool(
+            background_music_path and os.path.isfile(background_music_path)
+        )
+        if has_background_music:
+            inputs += ["-stream_loop", "-1", "-i", background_music_path]
 
-        # 构建 filter_complex
+        # 构建画面和音频滤镜。背景音乐以旁白总时长为准循环/裁剪，并在结尾淡出。
         filter_complex = self._build_filter_complex(images, durations, width, height, fps)
+        narration_duration = (
+            sum(page_durations.values())
+            + max(0, len(images) - 1) * INTER_PAGE_PAUSE
+        )
+        voice_volume = max(0.0, min(2.0, float(voice_volume)))
+        background_music_volume = max(
+            0.0, min(1.0, float(background_music_volume))
+        )
+        voice_index = n
+        limiter = "alimiter=limit=0.95:level=0:latency=1"
+        if has_background_music:
+            music_index = n + 1
+            fade_duration = min(1.5, narration_duration)
+            fade_start = max(0.0, narration_duration - fade_duration)
+            audio_filter = (
+                f"[{voice_index}:a]volume={voice_volume:.4f}[voice];"
+                f"[{music_index}:a]aresample=async=1:first_pts=0,"
+                f"volume={background_music_volume:.4f},"
+                f"atrim=duration={narration_duration:.3f},asetpts=N/SR/TB,"
+                f"afade=t=out:st={fade_start:.3f}:d={fade_duration:.3f}[bgm];"
+                f"[voice][bgm]amix=inputs=2:duration=first:"
+                f"dropout_transition=0:normalize=0,{limiter}[outa]"
+            )
+        else:
+            audio_filter = (
+                f"[{voice_index}:a]volume={voice_volume:.4f},"
+                f"{limiter}[outa]"
+            )
+        filter_complex = f"{filter_complex};{audio_filter}"
 
         # 编码参数
         if use_nvenc:
@@ -404,7 +445,7 @@ class VideoComposer:
             ffmpeg, "-y",
             *inputs,
             "-filter_complex", filter_complex,
-            "-map", "[outv]", "-map", f"{n}:a?",
+            "-map", "[outv]", "-map", "[outa]",
             *video_codec,
             "-c:a", "aac", "-b:a", "192k",
             "-movflags", "+faststart",

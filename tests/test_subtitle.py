@@ -45,7 +45,7 @@ class TestSubtitleGenerator(unittest.TestCase):
         _sync_last_segments_from_audio_info 若不设置 subtitle_text，generate_srt_subtitle
         走 SubtitleGenerator 会生成空白字幕条目，导致最常见的默认音色视频字幕全空。
         """
-        import TOOLBOX as pipeline
+        import toolbox as pipeline
 
         audio_info_list = [
             {"global_id": 1, "text": "你好世界", "audio_path": "/fake/a.wav", "duration_seconds": 2.0},

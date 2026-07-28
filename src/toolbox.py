@@ -725,10 +725,11 @@ def generate_full_speech(image_info_list: List[Dict]) -> Dict[int, str]:
     """兼容旧调用：只返回话术字典。"""
     return generate_full_speech_result(image_info_list)['speech']
 
-async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='normal', speed: float=None) -> Dict:
+async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='normal', speed: float=None, edge_voice: str=None) -> Dict:
     audio_path = os.path.join(OUTPUT_FOLDER, 'audio', f'{global_id}.mp3')
     submaker = edge_tts.SubMaker()
     text = text or ''
+    tts_voice = edge_voice or VOICE
     if speed is not None:
         rate = _speed_to_edge_rate(speed)
     else:
@@ -742,7 +743,7 @@ async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='norm
     last_error = None
     for attempt in range(3):
         try:
-            communicate = edge_tts.Communicate(normalize_special_pronunciation(text), VOICE, rate=rate)
+            communicate = edge_tts.Communicate(normalize_special_pronunciation(text), tts_voice, rate=rate)
             audio_bytes = 0
             with open(audio_path, 'wb') as f:
                 async for chunk in communicate.stream():
@@ -884,8 +885,18 @@ def batch_generate_tts(speech_dict: Dict[int, str], image_info_list: List[Dict]=
     init_output_folders()
     speech_speed = _clamp_speech_speed(speech_speed)
     data_root = data_root or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app_data')
+    edge_voice_name = None
     if not voice or voice == 'default':
-        audio_info_list = _tts_edge_parallel(speech_dict, image_info_list, speech_speed)
+        edge_voice_name = VOICE
+    else:
+        from voice_registry import VoiceRegistry as _VoiceRegistry
+        edge_meta = _VoiceRegistry(data_root).get_voice(voice)
+        if edge_meta and edge_meta.type == 'cloud_parallel' and edge_meta.edge_voice:
+            edge_voice_name = edge_meta.edge_voice
+    if edge_voice_name is not None:
+        audio_info_list = _tts_edge_parallel(
+            speech_dict, image_info_list, speech_speed, edge_voice=edge_voice_name
+        )
         _sync_last_segments_from_audio_info(audio_info_list)
         return audio_info_list
     from voice_registry import VoiceRegistry
@@ -893,10 +904,16 @@ def batch_generate_tts(speech_dict: Dict[int, str], image_info_list: List[Dict]=
     registry = VoiceRegistry(data_root)
     meta = registry.get_voice(voice)
     if meta is None or meta.type == 'cloud_parallel':
-        return _tts_edge_parallel(speech_dict, image_info_list, speech_speed)
+        selected_edge_voice = meta.edge_voice if meta and meta.edge_voice else VOICE
+        return _tts_edge_parallel(
+            speech_dict, image_info_list, speech_speed, edge_voice=selected_edge_voice
+        )
     if meta.type != 'cosyvoice3':
         print(f'[WARN] 音色类型 {meta.type} 未支持，回退 Edge TTS')
-        return _tts_edge_parallel(speech_dict, image_info_list, speech_speed)
+        selected_edge_voice = meta.edge_voice if meta and meta.edge_voice else VOICE
+        return _tts_edge_parallel(
+            speech_dict, image_info_list, speech_speed, edge_voice=selected_edge_voice
+        )
     ref_audio = ''
     if meta.ref_audio:
         if os.path.isabs(meta.ref_audio):
@@ -1110,18 +1127,20 @@ SegmentData 列表，使各通道行为一致（与 generate_video 内的重建�
     _last_all_segments = segs
 _last_all_segments = []
 
-async def _tts_edge_parallel_async(speech_dict, info_by_id, speech_speed=1.0):
+async def _tts_edge_parallel_async(speech_dict, info_by_id, speech_speed=1.0, edge_voice=None):
     sem = asyncio.Semaphore(min(len(speech_dict), 8))
 
     async def _one(global_id, text, speed):
         async with sem:
-            return await tts_single_paragraph(global_id, text, speed=speed)
+            return await tts_single_paragraph(global_id, text, speed=speed, edge_voice=edge_voice)
     tasks = [_one(gid, speech_dict[gid], speech_speed) for gid in sorted(speech_dict.keys())]
     return await asyncio.gather(*tasks)
 
-def _tts_edge_parallel(speech_dict, info_by_id, speech_speed=1.0) -> List[Dict]:
+def _tts_edge_parallel(speech_dict, info_by_id, speech_speed=1.0, edge_voice=None) -> List[Dict]:
     """默认路径：并发调用 Edge TTS（并发上限 min(段落数, 8)）。全局 speech_speed 统一应用。"""
-    results = asyncio.run(_tts_edge_parallel_async(speech_dict, info_by_id, speech_speed))
+    results = asyncio.run(
+        _tts_edge_parallel_async(speech_dict, info_by_id, speech_speed, edge_voice=edge_voice)
+    )
     for item in results:
         item['speech_speed'] = speech_speed
     return results
@@ -1340,7 +1359,13 @@ def create_subtitle_clip(text: str, start_time: float, end_time: float):
     clip = ImageClip(np.array(image)).set_start(start_time).set_end(end_time)
     return clip.set_position(('center', VIDEO_HEIGHT - image_height - 70))
 
-def generate_video(image_info_list: List[Dict], audio_info_list: List[Dict], srt_path: str=None, output_filename: str='output.mp4', include_subtitles: bool=True, mode: str='1080p') -> str:
+def generate_video(
+    image_info_list: List[Dict], audio_info_list: List[Dict],
+    srt_path: str=None, output_filename: str='output.mp4',
+    include_subtitles: bool=True, mode: str='1080p',
+    voice_volume: float=1.0, background_music_path: str=None,
+    background_music_volume: float=0.15,
+) -> str:
     """合成视频（委托给 VideoComposer）。
 
 重构后变化：
@@ -1365,7 +1390,17 @@ def generate_video(image_info_list: List[Dict], audio_info_list: List[Dict], srt
                 valid_image_infos.append(info)
         if not valid_image_infos:
             raise RuntimeError('没有可合成的页面')
-        composer.compose(image_infos=valid_image_infos, all_segments=_last_all_segments, srt_path=srt_path if include_subtitles else None, output_path=output_path, mode=mode, include_subtitles=include_subtitles)
+        composer.compose(
+            image_infos=valid_image_infos,
+            all_segments=_last_all_segments,
+            srt_path=srt_path if include_subtitles else None,
+            output_path=output_path,
+            mode=mode,
+            include_subtitles=include_subtitles,
+            voice_volume=voice_volume,
+            background_music_path=background_music_path,
+            background_music_volume=background_music_volume,
+        )
     else:
         from text_segmenter import SegmentData as _SegData
         edge_segments = []
@@ -1384,7 +1419,17 @@ def generate_video(image_info_list: List[Dict], audio_info_list: List[Dict], srt
                 valid_image_infos.append(info)
         if not valid_image_infos:
             raise RuntimeError('没有可合成的页面')
-        composer.compose(image_infos=valid_image_infos, all_segments=edge_segments, srt_path=srt_path if include_subtitles else None, output_path=output_path, mode=mode, include_subtitles=include_subtitles)
+        composer.compose(
+            image_infos=valid_image_infos,
+            all_segments=edge_segments,
+            srt_path=srt_path if include_subtitles else None,
+            output_path=output_path,
+            mode=mode,
+            include_subtitles=include_subtitles,
+            voice_volume=voice_volume,
+            background_music_path=background_music_path,
+            background_music_volume=background_music_volume,
+        )
     print(f'\n[OK] 视频输出: {output_path}')
     return output_path
 

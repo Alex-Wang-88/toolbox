@@ -10,7 +10,7 @@ SRC_DIR = str(PROJECT_ROOT / "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-import TOOLBOX
+import toolbox as TOOLBOX
 
 
 def image_items(count=4):

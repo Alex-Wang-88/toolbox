@@ -20,7 +20,7 @@
 ├── src/                         # 源代码
 │   ├── web_server.py           # Web 服务器（Flask）
 │   ├── app_launcher.py         # 桌面启动器
-│   ├── TOOLBOX.py       # 视频生成核心模块
+│   ├── toolbox.py       # 视频生成核心模块
 │   ├── TOOLBOX_web.py   # 另一套 Web 入口（简易版）
 │   ├── document_converter.py   # 文档转图片
 │   ├── hardware_profile.py     # 硬件检测
@@ -116,7 +116,37 @@ POST /api/generate
 Content-Type: application/json
 
 Body: {
-  "files": ["path1", "path2", ...]
+  "files": ["path1", "path2", ...],
+  "voice_volume": 1.0,
+  "background_music_id": "bgm_0123456789abcdef",
+  "background_music_volume": 0.15
+}
+```
+
+`voice_volume` 范围为 `0.0–2.0`。背景音乐可省略；提供时会自动循环或裁剪到
+视频长度，并在结尾淡出。
+
+### 背景音乐
+```
+POST /api/background-music
+Content-Type: multipart/form-data
+Body: file (MP3 / WAV / M4A / AAC，最大 50MB)
+
+GET /api/background-music/{music_id}
+DELETE /api/background-music/{music_id}
+```
+
+### 快速 TTS
+```
+POST /api/tts/quick
+Content-Type: application/json
+
+Body: {
+  "text": "要合成的文字",
+  "voice": "default",
+  "speed": 1.0,
+  "voice_volume": 1.0,
+  "async": true
 }
 ```
 
@@ -171,7 +201,7 @@ $env:TOOLBOX_API_URL="your_api_url"
 ```
 
 ### Q: 如何修改视频分辨率？
-A: 编辑 `TOOLBOX.py` 文件，修改：
+A: 编辑 `toolbox.py` 文件，修改：
 ```python
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080

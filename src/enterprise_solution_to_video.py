@@ -173,7 +173,7 @@ def convert_document(document_path: Path, image_dir: Path) -> list[str]:
 
 def generate_video(image_paths: list[str], run_dir: Path) -> str:
     print(f"[4/4] 使用默认参数生成视频，共 {len(image_paths)} 页...")
-    import TOOLBOX as pipeline
+    import toolbox as pipeline
 
     output_dir = run_dir / "output"
     pipeline.OUTPUT_FOLDER = str(output_dir)

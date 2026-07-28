@@ -6,7 +6,7 @@
 
 ```powershell
 python -m pip install -r config/requirements.txt
-python -m py_compile src/TOOLBOX.py src/web_server.py src/app_launcher.py src/document_converter.py src/hardware_profile.py
+python -m py_compile src/toolbox.py src/web_server.py src/app_launcher.py src/document_converter.py src/hardware_profile.py
 ffmpeg -version
 ffprobe -version
 ```
@@ -156,7 +156,7 @@ print(estimate_label(estimate_seconds(4, "all", profile)))
 ## 12. EXE 冒烟测试
 
 ```powershell
-python -m PyInstaller --noconfirm --clean --windowed --name "TOOLBOX" --add-data "static/index.html;static" --hidden-import TOOLBOX --hidden-import hardware_profile --hidden-import document_converter --hidden-import edge_tts --hidden-import pysrt --hidden-import requests --hidden-import win32com --hidden-import win32com.client --collect-all moviepy --collect-all imageio --collect-all imageio_ffmpeg --collect-all PIL --collect-all fitz --collect-all docx --collect-all lxml src/app_launcher.py
+python -m PyInstaller --noconfirm --clean --windowed --name "TOOLBOX" --add-data "static/index.html;static" --hidden-import toolbox --hidden-import hardware_profile --hidden-import document_converter --hidden-import edge_tts --hidden-import pysrt --hidden-import requests --hidden-import win32com --hidden-import win32com.client --collect-all moviepy --collect-all imageio --collect-all imageio_ffmpeg --collect-all PIL --collect-all fitz --collect-all docx --collect-all lxml src/app_launcher.py
 ```
 
 或者直接用 spec 文件：

@@ -71,6 +71,24 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertIn("toolbox-color-theme", self.html)
         self.assertIn('data-theme="dark"', self.html)
 
+    def test_voice_groups_are_shared_style_and_collapsed_by_default(self):
+        self.assertIn("Edge TTS 云端音色", self.html)
+        self.assertIn("CosyVoice3 本地克隆", self.html)
+        self.assertIn("voiceGroupExpanded = { edge: false, clone: false }", self.html)
+        self.assertNotIn('class="voice-group clone-group" open', self.html)
+
+    def test_video_page_has_voice_volume_and_background_music_controls(self):
+        for control_id in (
+            "voiceVolumeSlider", "backgroundMusicInput", "backgroundMusicDrop",
+            "backgroundMusicPreview", "backgroundMusicVolumeSlider",
+            "backgroundMusicRemoveBtn",
+        ):
+            self.assertIn(f'id="{control_id}"', self.html)
+        self.assertIn("voice_volume: getVoiceVolume()", self.html)
+        self.assertIn("background_music_id: backgroundMusic?.music_id || null", self.html)
+        self.assertIn("TOOLBOX_current_project_v2", self.html)
+        self.assertIn("TOOLBOX_current_project_v1", self.html)
+
 
 class TtsFrontendTests(unittest.TestCase):
     @classmethod
@@ -94,6 +112,17 @@ class TtsFrontendTests(unittest.TestCase):
         self.assertIn('aria-pressed="false"', self.html)
         self.assertIn("toolbox-color-theme", self.html)
         self.assertIn('data-theme="dark"', self.html)
+
+    def test_tts_voice_groups_match_main_page_and_start_collapsed(self):
+        self.assertIn("Edge TTS 云端音色", self.html)
+        self.assertIn("CosyVoice3 本地克隆", self.html)
+        self.assertIn("voiceGroupExpanded: { edge: false, clone: false }", self.html)
+        self.assertNotIn('class="voice-group clone-group" open', self.html)
+
+    def test_tts_page_has_independent_voice_volume_control(self):
+        self.assertIn('id="voiceVolumeRange"', self.html)
+        self.assertIn("toolbox_tts_voice_volume", self.html)
+        self.assertIn("voice_volume: getVoiceVolume()", self.html)
 
 
 class GenerateResolutionTests(unittest.TestCase):
@@ -162,8 +191,30 @@ class GenerateResolutionTests(unittest.TestCase):
         with mock.patch.object(web_server, "estimate_seconds", return_value=120):
             cloud = web_server.estimate_generation_request(4, "on", "default", 480, 1.0, {})
             clone = web_server.estimate_generation_request(4, "on", "clone_demo", 480, 1.0, {})
-        self.assertEqual(cloud, 120)
+        self.assertEqual(
+            cloud,
+            web_server.estimate_edge_generation_request(4, "on", 480, 1.0),
+        )
         self.assertGreater(clone, cloud)
+
+    def test_non_default_edge_voice_is_treated_as_cloud(self):
+        import web_server
+
+        voice_id = "edge_zh-CN-YunjianNeural"
+        self.assertTrue(web_server._voice_is_edge(voice_id))
+        ok, message = web_server._tts_check_voice(voice_id)
+        self.assertTrue(ok, message)
+        response = web_server.app.test_client().post("/api/estimate", json={
+            "image_count": 4,
+            "subtitle_mode": "on",
+            "voice": voice_id,
+            "character_count": 480,
+            "speech_speed": 1.0,
+        })
+        body = response.get_json()
+        self.assertEqual(response.status_code, 200, body)
+        self.assertEqual(body["voice_mode"], "cloud")
+        self.assertIsNone(body["warm_seconds"])
 
     def test_tts_callback_updates_real_segment_progress_and_logs(self):
         import web_server

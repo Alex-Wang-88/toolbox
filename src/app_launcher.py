@@ -49,7 +49,7 @@ def main():
             sys.path.insert(0, _src_dir)
 
     from web_server import app, DATA_ROOT
-    import TOOLBOX as _itv
+    import toolbox as _itv
 
     app.config["DATA_DIR"] = DATA_ROOT
 

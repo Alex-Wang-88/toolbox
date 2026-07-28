@@ -22,7 +22,7 @@ from flask_cors import CORS
 from document_converter import LARGE_GENERATION_CONFIRM_COUNT, SUPPORTED_EXTENSIONS, count_upload_screens, save_upload_as_images
 from hardware_profile import detect_hardware, estimate_label, estimate_seconds, record_actual_run, FIRST_LOAD_OVERHEAD
 from voice_registry import VoiceRegistry, Validation
-from ffmpeg_util import resolve_ffmpeg
+from ffmpeg_util import resolve_ffmpeg, resolve_ffprobe
 from audio_transcriber import transcribe_audio
 import gpu_setup
 from gpu_arbiter import gpu_arbiter
@@ -57,6 +57,10 @@ if not getattr(sys, "frozen", False):
 ensure_runtime_dirs()
 
 SUBTITLE_MODES = {"on", "off"}
+BACKGROUND_MUSIC_DIR = os.path.join(DATA_ROOT, "background_music")
+BACKGROUND_MUSIC_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac"}
+BACKGROUND_MUSIC_MAX_BYTES = 50 * 1024 * 1024
+os.makedirs(BACKGROUND_MUSIC_DIR, exist_ok=True)
 
 # 语音注册表（默认/预设静态常量 + 克隆清单持久化）与上传校验器
 VOICE_REGISTRY = VoiceRegistry(DATA_ROOT)
@@ -217,7 +221,7 @@ def make_tts_progress_callback(task_id, start=60, end=78, prefix="生成克隆�
 
 
 def estimate_generation_request(image_count, subtitle_mode, voice="default", character_count=0, speech_speed=1.0, profile=None, cache_hint=None):
-    """估算整条生成链路；克隆音色(cosyvoice3)额外补一次性模型加载固定开销。
+    """估算整条生成链路；Edge 云端与本地克隆分别使用对应模型。
 
     Args:
         cache_hint: 缓存提示
@@ -225,16 +229,49 @@ def estimate_generation_request(image_count, subtitle_mode, voice="default", cha
             True      → 热启动（缓存命中，仅视频合成）
             "auto"    → 自动判断（有 warm 样本时用 warm rate）
 
-    注意：base 已含稳态推理（calibrated_mode_rates 已从样本中剥离首次加载），
-    冷启动时仅补一次性模型加载；warm 轨不补（模型已在内存，TTS 被缓存跳过）。
+    Edge TTS 最多 8 路并发，不能套用本地 CosyVoice3 的逐段推理历史样本。
     """
+    if _voice_is_edge(voice):
+        return estimate_edge_generation_request(
+            image_count, subtitle_mode, character_count, speech_speed
+        )
     base = estimate_seconds(image_count, subtitle_mode, profile, cache_hint=cache_hint)
-    if not voice or voice == "default" or not image_count:
+    if not image_count:
         return base
     # 仅冷启动时补模型加载固定开销；warm 轨不需要（模型已常驻 + TTS 被缓存跳过）
     if cache_hint is not True:
         base += FIRST_LOAD_OVERHEAD
     return base
+
+
+def estimate_edge_generation_request(image_count, subtitle_mode, character_count=0, speech_speed=1.0):
+    """估算 Edge TTS 云端并发请求与视频编码耗时。"""
+    image_count = max(0, int(image_count or 0))
+    if image_count == 0:
+        return 0
+    try:
+        character_count = max(0, int(character_count or 0))
+    except (TypeError, ValueError):
+        character_count = 0
+    if character_count == 0:
+        character_count = image_count * 150
+    try:
+        speech_speed = max(0.7, min(1.5, float(speech_speed or 1.0)))
+    except (TypeError, ValueError):
+        speech_speed = 1.0
+
+    request_waves = math.ceil(image_count / 8)
+    edge_api_seconds = request_waves * 8.0 + character_count / 100.0
+    narration_seconds = character_count / (4.5 * speech_speed)
+    encode_realtime_factor = 0.04 if subtitle_mode != "off" else 0.02
+    video_seconds = 6.0 + image_count * 0.8 + narration_seconds * encode_realtime_factor
+    return max(1, int(math.ceil(edge_api_seconds + video_seconds)))
+
+
+def _voice_is_edge(voice):
+    """按注册类型判断 Edge 云端音色，不能只判断 id 是否为 default。"""
+    meta = VOICE_REGISTRY.get_voice(voice or "default")
+    return bool(meta and meta.type == "cloud_parallel")
 
 
 def sanitize_filename_part(value, fallback="视频"):
@@ -336,7 +373,12 @@ def normalize_image_items(data):
     ]
 
 
-def run_video_generation(task_id, image_items, subtitle_mode, voice="default", manuscript_override=None, speech_speed=1.0, output_mode="1080p"):
+def run_video_generation(
+    task_id, image_items, subtitle_mode, voice="default",
+    manuscript_override=None, speech_speed=1.0, output_mode="1080p",
+    voice_volume=1.0, background_music_path=None,
+    background_music_volume=0.15,
+):
     """Run one background generation task.
 
     manuscript_override: 可选的前端编辑后逐页文稿列表（[{file, text}, ...]），
@@ -351,7 +393,7 @@ def run_video_generation(task_id, image_items, subtitle_mode, voice="default", m
         update_task_progress(task_id, 10, "准备生成环境...", stage="prepare", log=True)
 
         sys.path.insert(0, os.path.dirname(__file__))
-        import TOOLBOX as pipeline
+        import toolbox as pipeline
 
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
@@ -402,15 +444,16 @@ def run_video_generation(task_id, image_items, subtitle_mode, voice="default", m
         tasks[task_id]["output_base_name"] = output_base_name
 
         assert_not_cancelled(task_id)
-        voice_label = "克隆配音" if voice != "default" else "云端配音"
+        is_edge_voice = _voice_is_edge(voice)
+        voice_label = "云端配音" if is_edge_voice else "克隆配音"
         update_task_progress(
             task_id, 58,
-            f"正在准备{voice_label}..." + ("首次使用可能需要加载模型" if voice != "default" else ""),
+            f"正在准备{voice_label}..." + ("" if is_edge_voice else "首次使用可能需要加载模型"),
             stage="tts", log=True,
         )
-        tts_progress_callback = make_tts_progress_callback(task_id) if voice != "default" else None
+        tts_progress_callback = None if is_edge_voice else make_tts_progress_callback(task_id)
         # 跨进程 GPU 串行锁：避免与本地克隆训练抢卡
-        if voice != "default":
+        if not is_edge_voice:
             update_task_progress(task_id, 59, "等待本地语音引擎，随后按段生成配音...", stage="tts", log=True, indeterminate=True)
         gpu_arbiter.acquire(block=True)
         try:
@@ -442,6 +485,9 @@ def run_video_generation(task_id, image_items, subtitle_mode, voice="default", m
             output_filename=build_video_filename(output_base_name, variant),
             include_subtitles=include_subtitles,
             mode=output_mode,
+            voice_volume=voice_volume,
+            background_music_path=background_music_path,
+            background_music_volume=background_music_volume,
         )
         add_output(task_id, "带字幕视频" if include_subtitles else "无字幕视频", output_path, variant)
 
@@ -450,7 +496,7 @@ def run_video_generation(task_id, image_items, subtitle_mode, voice="default", m
         update_task_progress(task_id, 100, "视频生成完成", stage="completed", log=True, indeterminate=False)
         # 检测是否缓存命中（所有 TTS 段均为 cached/cached_file → warm）
         is_cache_hit = False
-        if voice != "default" and audio_info_list:
+        if not is_edge_voice and audio_info_list:
             all_cached = all(
                 getattr(s, "status", "") in ("cached", "cached_file")
                 for s in audio_info_list
@@ -601,7 +647,7 @@ def get_config():
     }
     try:
         sys.path.insert(0, os.path.dirname(__file__))
-        import TOOLBOX as pipeline
+        import toolbox as pipeline
 
         config["gpu_accel"] = bool(pipeline.can_use_gpu_video())
         config["whisper_model"] = pipeline.WHISPER_MODEL_SIZE
@@ -659,9 +705,10 @@ def estimate():
         image_count, subtitle_mode, voice, character_count, speech_speed, profile,
         cache_hint=cache_hint,
     )
-    # 同时返回 warm 轨预估供前端参考（如"若缓存命中约 X 分钟"）
+    is_edge = _voice_is_edge(voice)
+    # 只有本地克隆才有 TTS 缓存命中的 warm 轨。
     warm_seconds = None
-    if voice and voice != "default" and image_count:
+    if not is_edge and image_count:
         warm_seconds = estimate_generation_request(
             image_count, subtitle_mode, voice, character_count, speech_speed, profile,
             cache_hint=True,
@@ -672,7 +719,7 @@ def estimate():
         "warm_seconds": warm_seconds,
         "warm_label": estimate_label(warm_seconds) if warm_seconds else None,
         "profile": profile,
-        "voice_mode": "clone" if voice != "default" else "cloud",
+        "voice_mode": "cloud" if is_edge else "clone",
     }
     return jsonify(result)
 
@@ -741,6 +788,16 @@ def generate_video_task():
     except (TypeError, ValueError):
         speech_speed = 1.0
     speech_speed = max(0.7, min(1.5, speech_speed))
+    voice_volume = _clamp_float(data.get("voice_volume", 1.0), 1.0, 0.0, 2.0)
+    background_music_volume = _clamp_float(
+        data.get("background_music_volume", 0.15), 0.15, 0.0, 1.0
+    )
+    background_music_id = str(data.get("background_music_id") or "")
+    background_music_path = None
+    if background_music_id:
+        background_music_path = _background_music_path(background_music_id)
+        if not background_music_path:
+            return jsonify({"error": "背景音乐不存在或已失效，请重新上传"}), 400
 
     if manuscript_override is not None:
         if not isinstance(manuscript_override, list) or len(manuscript_override) != len(image_items):
@@ -749,13 +806,10 @@ def generate_video_task():
             if not isinstance(item, dict) or not isinstance(item.get("text"), str):
                 return jsonify({"error": f"第 {index + 1} 页文稿格式无效"}), 400
 
-    if voice != "default":
-        settings = gpu_setup.load_gpu_voice_settings(DATA_ROOT)
-        has_dependency, _ = gpu_setup.check_dependency()
-        if not settings.get("enabled", False) or not has_dependency:
-            return jsonify({"error": "所选本地音色不可用，请先开启 GPU 语音加速并完成依赖安装"}), 409
-        if VOICE_REGISTRY.get_voice(voice) is None:
-            return jsonify({"error": "所选音色不存在，请重新选择"}), 400
+    voice_ok, voice_error = _tts_check_voice(voice)
+    if not voice_ok:
+        status = 409 if "不可用" in voice_error else 400
+        return jsonify({"error": voice_error}), status
 
     # 主界面统一输出 1080p；忽略旧客户端或历史会话中的 720p 参数。
     output_mode = "1080p"
@@ -771,6 +825,9 @@ def generate_video_task():
         "subtitle_mode": subtitle_mode,
         "voice": voice,
         "speech_speed": speech_speed,
+        "voice_volume": voice_volume,
+        "background_music_id": background_music_id or None,
+        "background_music_volume": background_music_volume,
         "output_mode": output_mode,
         "requested_output_name": data.get("output_name", ""),
         "source_names": data.get("source_names", []),
@@ -785,7 +842,14 @@ def generate_video_task():
     thread = threading.Thread(
         target=run_video_generation,
         args=(task_id, image_items, subtitle_mode, voice),
-        kwargs={"manuscript_override": manuscript_override, "speech_speed": speech_speed, "output_mode": output_mode},
+        kwargs={
+            "manuscript_override": manuscript_override,
+            "speech_speed": speech_speed,
+            "output_mode": output_mode,
+            "voice_volume": voice_volume,
+            "background_music_path": background_music_path,
+            "background_music_volume": background_music_volume,
+        },
     )
     thread.daemon = True
     thread.start()
@@ -820,7 +884,7 @@ def _manuscript_generation_worker(task_id, image_items):
         tasks[task_id]["status"] = "processing"
         update_task_progress(task_id, 5, "准备图片与 AI 请求...", stage="prepare", log=True, indeterminate=False)
         sys.path.insert(0, os.path.dirname(__file__))
-        import TOOLBOX as pipeline
+        import toolbox as pipeline
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
 
@@ -904,7 +968,7 @@ def generate_manuscript():
 
     try:
         sys.path.insert(0, os.path.dirname(__file__))
-        import TOOLBOX as pipeline
+        import toolbox as pipeline
 
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
@@ -1049,13 +1113,118 @@ def _ranged_file_response(path: str, as_attachment: bool = False):
     return resp
 
 
+# ===================== 背景音乐管理 =====================
+
+def _clamp_float(value, default, minimum, maximum):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    if not math.isfinite(number):
+        number = default
+    return max(minimum, min(maximum, number))
+
+
+def _background_music_path(music_id):
+    """由不透明 ID 解析背景音乐路径；不接受客户端文件路径。"""
+    music_id = str(music_id or "")
+    if not re.fullmatch(r"bgm_[0-9a-f]{16}", music_id):
+        return None
+    for ext in BACKGROUND_MUSIC_EXTENSIONS:
+        candidate = os.path.join(BACKGROUND_MUSIC_DIR, music_id + ext)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _probe_background_music(path):
+    ffprobe = resolve_ffprobe()
+    if not ffprobe:
+        return False, 0.0, "FFprobe 不可用，无法校验背景音乐"
+    try:
+        result = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-select_streams", "a:0",
+                "-show_entries", "stream=codec_type:format=duration",
+                "-of", "json", path,
+            ],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=30,
+        )
+        payload = json.loads(result.stdout or "{}") if result.returncode == 0 else {}
+        streams = payload.get("streams") or []
+        duration = float((payload.get("format") or {}).get("duration") or 0.0)
+        if not streams or streams[0].get("codec_type") != "audio" or duration <= 0:
+            return False, 0.0, "文件不包含可解码的音轨"
+        return True, duration, ""
+    except Exception:
+        return False, 0.0, "背景音乐解析失败"
+
+
+@app.route("/api/background-music", methods=["POST"])
+def upload_background_music():
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"error": "没有选择背景音乐"}), 400
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in BACKGROUND_MUSIC_EXTENSIONS:
+        return jsonify({"error": "不支持的格式，仅支持 MP3、WAV、M4A、AAC"}), 400
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size <= 0:
+        return jsonify({"error": "背景音乐文件为空"}), 400
+    if size > BACKGROUND_MUSIC_MAX_BYTES:
+        return jsonify({"error": "背景音乐文件不能超过 50MB"}), 413
+
+    music_id = "bgm_" + uuid.uuid4().hex[:16]
+    target = os.path.join(BACKGROUND_MUSIC_DIR, music_id + ext)
+    keep_file = False
+    try:
+        file.save(target)
+        valid, duration, reason = _probe_background_music(target)
+        if not valid:
+            return jsonify({"error": reason}), 400
+        keep_file = True
+        return jsonify({
+            "music_id": music_id,
+            "name": os.path.basename(file.filename),
+            "duration": round(duration, 2),
+            "preview_url": f"/api/background-music/{music_id}",
+        }), 201
+    finally:
+        if not keep_file and os.path.isfile(target):
+            try:
+                os.remove(target)
+            except OSError:
+                pass
+
+
+@app.route("/api/background-music/<music_id>", methods=["GET"])
+def stream_background_music(music_id):
+    path = _background_music_path(music_id)
+    if not path:
+        return jsonify({"error": "背景音乐不存在"}), 404
+    return _ranged_file_response(path)
+
+
+@app.route("/api/background-music/<music_id>", methods=["DELETE"])
+def delete_background_music(music_id):
+    path = _background_music_path(music_id)
+    if not path:
+        return jsonify({"error": "背景音乐不存在"}), 404
+    for attempt in range(5):
+        try:
+            os.remove(path)
+            break
+        except PermissionError:
+            if attempt == 4:
+                return jsonify({"error": "背景音乐正在试听，请停止播放后重试"}), 409
+            time.sleep(0.05)
+    return jsonify({"success": True})
+
+
 # ===================== 语音管理（Edge 云端并行 + 本地克隆）=====================
-
-def _cosyvoice3_available():
-    """CosyVoice3 本地克隆音色是否可用。复用 gpu_setup.check_dependency 避免重复探探。"""
-    ready, _ = gpu_setup.check_dependency()
-    return ready
-
 
 @app.route("/api/voices", methods=["GET"])
 def list_voices():
@@ -1063,7 +1232,7 @@ def list_voices():
     VOICE_REGISTRY.reload()
     settings = gpu_setup.load_gpu_voice_settings(DATA_ROOT)
     has_dependency, dep_msg = gpu_setup.check_dependency()
-    cosy3_ready = _cosyvoice3_available()
+    cosy3_ready = bool(settings.get("enabled", False) and has_dependency)
     # 不可用的具体原因（供前端展示 availability_reason）
     if not cosy3_ready:
         if not settings.get("enabled", False):
@@ -1088,6 +1257,11 @@ def list_voices():
             "availability_reason": (
                 "" if (v.type == "cloud_parallel" or cosy3_ready) else cosy3_reason
             ),
+            "edge_voice": getattr(v, "edge_voice", "") or "",
+            "gender": getattr(v, "gender", "") or "",
+            "group": getattr(v, "group", "") or (
+                "cosyvoice3" if v.type == "cosyvoice3" else "edge"
+            ),
         }
         for v in VOICE_REGISTRY.list_voices()
     ]
@@ -1104,13 +1278,16 @@ def _tts_clamp_speed(value):
 
 
 def _tts_check_voice(voice):
-    """校验本地音色可用性（复用 /api/generate 的同款规则）。返回 (ok, msg)。"""
+    """校验音色；Edge 云端不依赖 GPU，本地克隆才检查运行环境。"""
+    meta = VOICE_REGISTRY.get_voice(voice or "default")
+    if meta is None:
+        return False, "所选音色不存在，请重新选择"
+    if meta.type == "cloud_parallel":
+        return True, ""
     settings = gpu_setup.load_gpu_voice_settings(DATA_ROOT)
     has_dependency, _ = gpu_setup.check_dependency()
     if not settings.get("enabled", False) or not has_dependency:
         return False, "所选本地音色不可用，请先开启 GPU 语音加速并完成依赖安装"
-    if VOICE_REGISTRY.get_voice(voice) is None:
-        return False, "所选音色不存在，请重新选择"
     return True, ""
 
 
@@ -1141,6 +1318,35 @@ def _concat_audio_files(paths, out_path):
             pass
 
 
+def _apply_output_volume(path, volume):
+    """调整最终交付音频音量，不改写 TTS 分段缓存。"""
+    ffmpeg = resolve_ffmpeg()
+    if not ffmpeg or not os.path.isfile(path):
+        return False
+    volume = _clamp_float(volume, 1.0, 0.0, 2.0)
+    stem, ext = os.path.splitext(path)
+    temp_path = f"{stem}.volume-{uuid.uuid4().hex[:8]}{ext}"
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg, "-y", "-i", path,
+                "-af", f"volume={volume:.4f},alimiter=limit=0.95:level=0:latency=1",
+                "-codec:a", "libmp3lame", "-q:a", "2", temp_path,
+            ],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        if result.returncode != 0 or not os.path.isfile(temp_path):
+            return False
+        os.replace(temp_path, path)
+        return True
+    finally:
+        if os.path.isfile(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
 def _resolve_quick_image(image):
     """解析快速生成可选图片路径（限制在输出/上传目录内，防穿越）。"""
     if not image or not isinstance(image, str):
@@ -1158,7 +1364,10 @@ def _resolve_quick_image(image):
     return None
 
 
-def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=None):
+def _quick_generate_worker(
+    task_id, text, voice, speed, voice_volume=1.0,
+    with_video=False, image=None,
+):
     """TTS 页面单段后台任务，提供真实的分段进度。"""
     generation_lock.acquire()
     gpu_acquired = False
@@ -1166,7 +1375,7 @@ def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=
         tasks[task_id]["status"] = "processing"
         update_task_progress(task_id, 10, "准备语音引擎...", stage="prepare", log=True)
         sys.path.insert(0, os.path.dirname(__file__))
-        import TOOLBOX as pipeline
+        import toolbox as pipeline
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
 
@@ -1175,7 +1384,9 @@ def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=
         if not gpu_acquired:
             raise RuntimeError("GPU 正忙（训练中），请稍后重试")
 
-        callback = make_tts_progress_callback(task_id, 20, 84, "单段配音") if voice != "default" else None
+        callback = None if _voice_is_edge(voice) else make_tts_progress_callback(
+            task_id, 20, 84, "单段配音"
+        )
         audio_info_list = pipeline.batch_generate_tts(
             {1: text}, None, voice=voice, data_root=DATA_ROOT,
             speech_speed=speed, progress_callback=callback,
@@ -1194,6 +1405,8 @@ def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=
         audio_out = os.path.join(get_output_folder(), f"quick_{qid}.mp3")
         if not _concat_audio_files(seg_paths, audio_out):
             raise RuntimeError("音频拼接失败")
+        if not _apply_output_volume(audio_out, voice_volume):
+            raise RuntimeError("音频音量处理失败")
 
         result = {"audio_url": f"/api/tts/file/quick_{qid}.mp3"}
         if with_video:
@@ -1205,6 +1418,7 @@ def _quick_generate_worker(task_id, text, voice, speed, with_video=False, image=
                     [{"file_path": img_path, "global_id": 1, "name": os.path.basename(img_path)}],
                     audio_info_list, srt_path,
                     output_filename=f"quick_{qid}.mp4", include_subtitles=True, mode="1080p",
+                    voice_volume=voice_volume,
                 )
                 result["video_url"] = f"/api/tts/file/video/quick_{qid}.mp4"
             except Exception as exc:
@@ -1226,7 +1440,7 @@ def _batch_generate_worker(task_id, lines, voice, speed):
     """批量生成后台线程：逐行 batch_generate_tts -> 复制结果 -> manifest -> ZIP。"""
     generation_lock.acquire()
     try:
-        import TOOLBOX as pipeline
+        import toolbox as pipeline
         pipeline.OUTPUT_FOLDER = get_output_folder()
         pipeline.init_output_folders()
 
@@ -1244,7 +1458,10 @@ def _batch_generate_worker(task_id, lines, voice, speed):
             update_task_progress(task_id, 30, "准备分段生成配音...", stage="tts", log=True, indeterminate=True)
             audio_info_list = pipeline.batch_generate_tts(
                 speech_dict, None, voice=voice, data_root=DATA_ROOT, speech_speed=speed,
-                progress_callback=make_tts_progress_callback(task_id, 30, 88, "批量配音"),
+                progress_callback=(
+                    None if _voice_is_edge(voice)
+                    else make_tts_progress_callback(task_id, 30, 88, "批量配音")
+                ),
             )
         finally:
             gpu_arbiter.release()
@@ -1308,20 +1525,20 @@ def _batch_generate_worker(task_id, lines, voice, speed):
 
 @app.route("/api/tts/quick", methods=["POST"])
 def tts_quick():
-    """快速生成单段：{text, voice, speed?, with_video?, image?} -> {audio_url, (video_url?)}。"""
+    """快速生成单段：{text, voice, speed?, voice_volume?, with_video?, image?}。"""
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     if not text:
         return jsonify({"error": "缺少文本"}), 400
     voice = data.get("voice") or "default"
     speed = _tts_clamp_speed(data.get("speed", 1.0))
+    voice_volume = _clamp_float(data.get("voice_volume", 1.0), 1.0, 0.0, 2.0)
     with_video = bool(data.get("with_video"))
     image = data.get("image") or None
 
-    if voice != "default":
-        ok, msg = _tts_check_voice(voice)
-        if not ok:
-            return jsonify({"error": msg}), 409 if "不可用" in msg else 400
+    ok, msg = _tts_check_voice(voice)
+    if not ok:
+        return jsonify({"error": msg}), 409 if "不可用" in msg else 400
     if with_video and not _resolve_quick_image(image):
         return jsonify({"error": "生成视频需提供有效的 image 路径"}), 400
 
@@ -1330,17 +1547,18 @@ def tts_quick():
         tasks[task_id] = {
             "status": "pending", "progress": 0, "message": "排队中...",
             "stage": "queued", "indeterminate": False, "result": None,
+            "voice_volume": voice_volume,
             "logs": [{"time": time.strftime("%H:%M:%S"), "message": "单段配音任务已进入队列", "stage": "queued"}],
         }
         threading.Thread(
             target=_quick_generate_worker,
-            args=(task_id, text, voice, speed, with_video, image),
+            args=(task_id, text, voice, speed, voice_volume, with_video, image),
             daemon=True,
         ).start()
         return jsonify({"task_id": task_id}), 202
 
     sys.path.insert(0, os.path.dirname(__file__))
-    import TOOLBOX as pipeline
+    import toolbox as pipeline
     pipeline.OUTPUT_FOLDER = get_output_folder()
     pipeline.init_output_folders()
 
@@ -1367,6 +1585,8 @@ def tts_quick():
         audio_out = os.path.join(get_output_folder(), f"quick_{qid}.mp3")
         if not _concat_audio_files(seg_paths, audio_out):
             return jsonify({"error": "音频拼接失败"}), 500
+        if not _apply_output_volume(audio_out, voice_volume):
+            return jsonify({"error": "音频音量处理失败"}), 500
 
         result = {"audio_url": f"/api/tts/file/quick_{qid}.mp3"}
         if with_video:
@@ -1377,6 +1597,7 @@ def tts_quick():
                     [{"file_path": img_path, "global_id": 1, "name": os.path.basename(img_path)}],
                     audio_info_list, srt_path,
                     output_filename=f"quick_{qid}.mp4", include_subtitles=True, mode="1080p",
+                    voice_volume=voice_volume,
                 )
                 result["video_url"] = f"/api/tts/file/video/quick_{qid}.mp4"
             except Exception as e:
@@ -1398,10 +1619,9 @@ def tts_batch():
         return jsonify({"error": "单次批量上限 500 行"}), 400
     voice = data.get("voice") or "default"
     speed = _tts_clamp_speed(data.get("speed", 1.0))
-    if voice != "default":
-        ok, msg = _tts_check_voice(voice)
-        if not ok:
-            return jsonify({"error": msg}), 409 if "不可用" in msg else 400
+    ok, msg = _tts_check_voice(voice)
+    if not ok:
+        return jsonify({"error": msg}), 409 if "不可用" in msg else 400
 
     task_id = str(uuid.uuid4())
     tasks[task_id] = {

@@ -166,7 +166,7 @@ export APP_VARIANT=cpu
       （均已确认在 `.gitignore` 中。）
 - [ ] `git status` 不应列出：`.env`、`.venv/`、`venv_cosyvoice/`、`runtime/`、`tts_poc/`、
       `src/hardware_profile.json`、`app_data/` 等。
-- [ ] 源码中**无 `C:\Users\12992` 字面量**（`TOOLBOX.py` 字体已改为 `WINDIR` 推导；
+- [ ] 源码中**无 `C:\Users\12992` 字面量**（`toolbox.py` 字体已改为 `WINDIR` 推导；
       `src/hardware_profile.json` 已删除；如仍有 Windows 候选路径必须位于 `os.name=='nt'` 守卫内）。
 - [ ] 依赖跨平台：根 `requirements.txt` 的 `pywin32` 已加 `; platform_system == "Windows"`；
       `config/requirements.txt` 已带平台标记。`tts_poc/requirements.txt` 的 `pynini`
