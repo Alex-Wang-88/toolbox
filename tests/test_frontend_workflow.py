@@ -39,10 +39,27 @@ class FrontendWorkflowTests(unittest.TestCase):
     def test_frontend_has_one_clear_three_step_flow(self):
         self.assertEqual(self.parser.steps, 3)
         for required_id in (
-            "step1", "step2", "step3", "genManuscriptBtn", "msApplyBtn",
+            "step1", "step2", "step3", "genManuscriptBtn", "manualManuscriptBtn", "msApplyBtn",
             "startBtn", "appNotice", "manuscriptValidation",
         ):
             self.assertIn(required_id, self.parser.ids)
+
+    def test_manual_manuscript_path_is_available_without_ai(self):
+        self.assertIn(">AI 生成文稿</button>", self.html)
+        self.assertIn(">自己填写文稿</button>", self.html)
+        self.assertIn("AI 生成不是必选项", self.html)
+        start = self.html.index("async function enterManualManuscript()")
+        end = self.html.index("async function generateManuscript()", start)
+        manual_path = self.html[start:end]
+        self.assertIn("reconcileManuscriptData()", manual_path)
+        self.assertIn("goToStep(2)", manual_path)
+        self.assertNotIn("/generate-manuscript", manual_path)
+
+    def test_prepared_materials_can_enter_manuscript_step_with_blank_pages(self):
+        self.assertIn("if (n === 2 && isPrepared && preparedImages.length)", self.html)
+        self.assertIn("text: existing.text || ''", self.html)
+        self.assertIn("requestedStep === 3 && !isManuscriptComplete() ? 2", self.html)
+        self.assertIn("AI 重新生成会覆盖当前文稿", self.html)
 
     def test_frontend_ids_are_unique(self):
         duplicates = [name for name, count in Counter(self.parser.ids).items() if count > 1]
@@ -70,6 +87,8 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertIn('aria-pressed="false"', self.html)
         self.assertIn("toolbox-color-theme", self.html)
         self.assertIn('data-theme="dark"', self.html)
+        self.assertIn("background: #2d1820; color: #fda4af;", self.html)
+        self.assertIn("background: #241820; border-color: #8f3f52;", self.html)
 
     def test_voice_groups_are_shared_style_and_collapsed_by_default(self):
         self.assertIn("Edge TTS 云端音色", self.html)
