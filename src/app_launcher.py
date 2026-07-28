@@ -49,7 +49,7 @@ def main():
             sys.path.insert(0, _src_dir)
 
     from web_server import app, DATA_ROOT
-    import toolbax as _itv
+    import toolbox as _itv
 
     app.config["DATA_DIR"] = DATA_ROOT
 
@@ -67,11 +67,11 @@ def main():
 
     port = find_free_port()
     url = f"http://127.0.0.1:{port}"
-    if os.getenv("TOOLBAX_SKIP_BROWSER") != "1":
+    if os.getenv("TOOLBOX_SKIP_BROWSER") != "1":
         threading.Thread(target=open_browser_later, args=(url,), daemon=True).start()
 
     print("==========================================")
-    print("    toolbax")
+    print("    TOOLBOX")
     print("==========================================")
     print(f"访问地址: {url}")
     print("关闭此窗口即可停止服务")

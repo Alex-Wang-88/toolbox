@@ -30,7 +30,7 @@
 - **深度学习栈**：**PyTorch 稳定版 `2.13+cu126`**（RTX 5060 / Blackwell sm_120 原生支持，实测 `torch.cuda.is_available()` 为 True），无需 nightly。
 - **音频处理**：`librosa` / `soundfile` / `pydub`（上传二次校验：格式白名单、大小、时长）、`ffmpeg`（参考音频预处理转 22050Hz 单声道、XTTS 产物转 mp3）。
 - **前端**：沿用 **原生 JS（`static/index.html` 单文件）**，不引入 React；复用既有 `.progress-card`/`.fill` 样式与 `GET /api/status/<task_id>` 轮询。
-- **架构模式**：后端为「**服务层（web_server 路由）+ 引擎层（XTTSManager）+ 注册表层（VoiceRegistry）+ 管线层（toolbax）**」四层；前端为「**单页 + 命令式 DOM 更新**」。
+- **架构模式**：后端为「**服务层（web_server 路由）+ 引擎层（XTTSManager）+ 注册表层（VoiceRegistry）+ 管线层（TOOLBOX）**」四层；前端为「**单页 + 命令式 DOM 更新**」。
 
 ### 1.3 预设说话人（Q3 拍板：2 个）
 
@@ -56,7 +56,7 @@
 | `src/voice_registry.py` | 新增 | **音色注册表 + 持久化**：`VoiceRegistry`（默认/预设静态常量 + 克隆清单读写 + 文件锁）、`Validation`（上传校验/参考音频预处理）、`VoiceMeta` 数据类、常量（路径/上限/预设） |
 | `app_data/voices/voices.json` | 新增（运行时） | 克隆音色元数据清单（仅存克隆项；默认/预设为代码静态常量，不落盘） |
 | `src/web_server.py` | 修改 | 新增语音路由（GET/POST/DELETE `/api/voices*`）、修改 `/api/generate` 接收 `voice` 字段、新增训练后台任务 `run_voice_training`、复用 `tasks` 进度机制 |
-| `src/toolbax.py` | 修改 | `batch_generate_tts` 并行化 + 增加 `voice` 参数 + XTTS 分支（`_tts_xtts_parallel`）、`VOICE` 常量保留作默认兜底 |
+| `src/TOOLBOX.py` | 修改 | `batch_generate_tts` 并行化 + 增加 `voice` 参数 + XTTS 分支（`_tts_xtts_parallel`）、`VOICE` 常量保留作默认兜底 |
 | `static/index.html` | 修改 | 右侧「生成」面板新增「🎙️ 语音」分区（下拉/列表 + 上传 + 训练进度 + 重命名/删除）、生成提交带 `voice` 字段、初始加载语音列表 |
 
 > 权重缓存目录：`app_data/xtts_models/`（通过 `HF_HOME` 环境变量指向，首次运行自动下载）。
@@ -218,7 +218,7 @@ class XTTSManager:
     def warm_up(self) -> None             # 用一句短文本跑一次 dummy 推理，预热 CUDA
     def is_available(self) -> bool
 
-# ---- src/toolbax.py（修改签名）----
+# ---- src/TOOLBOX.py（修改签名）----
 def batch_generate_tts(speech_dict, image_info_list=None, voice: str = "default") -> List[Dict]
 def _tts_edge_parallel(speech_dict, info_by_id) -> List[Dict]      # asyncio.gather，并发上限 min(N,8)
 def _tts_xtts_parallel(speech_dict, info_by_id, voice_meta) -> List[Dict]
@@ -285,7 +285,7 @@ sequenceDiagram
     actor U as 用户
     participant F as 前端 index.html
     participant W as web_server.py
-    participant P as toolbax.py
+    participant P as TOOLBOX.py
     participant V as VoiceRegistry
     participant X as XTTSManager
     participant T as tasks[task_id]
@@ -391,7 +391,7 @@ pydub>=0.25.1              # 上传二次校验（时长/格式）
 - **交付**：全部语音路由可用，训练任务复用 `tasks` 进度机制经 `/api/status/<task_id>` 暴露，生成任务携带 `voice`。
 
 ### T04 — 推理管线并行化与 XTTS 分支　【P0】
-- **Source Files**：`src/toolbax.py`（修改 `batch_generate_tts` 增加 `voice` 参数；新增 `_tts_edge_parallel`（`asyncio.gather`，并发 `min(N,8)`，保留 3 次重试 + SAPI 兜底）；新增 `_tts_xtts_parallel`（经 `VoiceRegistry.get_voice` + `XTTSManager.synthesize` 产出同结构 dict）；`VOICE` 常量保留作默认）、`src/voice_clone.py`（被管线调用）、`src/voice_registry.py`（被管线调用）
+- **Source Files**：`src/TOOLBOX.py`（修改 `batch_generate_tts` 增加 `voice` 参数；新增 `_tts_edge_parallel`（`asyncio.gather`，并发 `min(N,8)`，保留 3 次重试 + SAPI 兜底）；新增 `_tts_xtts_parallel`（经 `VoiceRegistry.get_voice` + `XTTSManager.synthesize` 产出同结构 dict）；`VOICE` 常量保留作默认）、`src/voice_clone.py`（被管线调用）、`src/voice_registry.py`（被管线调用）
 - **Dependencies**：T02
 - **Priority**：P0
 - **交付**：默认路径并行 Edge TTS；非默认路径调用本地 XTTS；`generate_video`/`generate_srt_subtitle` 无需改动（字幕走 whisper 对齐）。

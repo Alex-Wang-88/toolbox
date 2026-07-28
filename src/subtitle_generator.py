@@ -112,10 +112,14 @@ class SubtitleGenerator:
 
         return "\n".join(srt_lines) + "\n"
 
+    # 标点字符集合，用于判断拆分时标点的归属
+    _PUNCT_CHARS = set("，。！？；：、,;:.!?")
+
     def _split_long_line(self, text: str, max_chars: int = 34) -> List[str]:
         """将过长的字幕文本拆分为多行。
 
         优先在标点处拆分，其次按字数拆。
+        标点始终跟随前一段文本，不会出现在下一行开头。
         """
         text = (text or "").strip()
         if not text:
@@ -123,26 +127,53 @@ class SubtitleGenerator:
         if len(text) <= max_chars:
             return [text]
 
-        # 先按标点拆分
+        # 先按标点拆分（标点作为独立 token）
         parts = re.split(r"([，。！？；：、,;:.!?])", text)
+        parts = [p for p in parts if p]
         result = []
         current = ""
 
-        for part in parts:
-            if not part:
-                continue
+        for i, part in enumerate(parts):
+            is_punct = part in self._PUNCT_CHARS
             combined = current + part
+
             if len(combined) <= max_chars:
                 current = combined
-            else:
-                if current:
+                continue
+
+            # 超长：需要吐出 current
+            if current:
+                # 如果当前 part 是标点，且 current 还能再塞下一个标点
+                # （通常标点只占 1 字符），就把标点并入 current 再吐出
+                if is_punct and len(current) + 1 <= max_chars:
+                    current = current + part
                     result.append(current.strip())
-                # 如果单个标点+文本就超长，强制截断
-                if len(part) > max_chars:
-                    # 强制按 max_chars 切
-                    while len(part) > max_chars:
-                        result.append(part[:max_chars].strip())
-                        part = part[max_chars:]
+                    current = ""
+                    continue
+                # 否则先吐出 current（末尾无标点也没关系）
+                result.append(current.strip())
+                current = ""
+
+            # 现在 current 为空，处理 part 本身
+            if is_punct:
+                # 标点单独无法成行，与下一个 part 合并
+                if i + 1 < len(parts):
+                    current = part + parts[i + 1]
+                    # 跳过下一个 part（已合并）
+                    parts[i + 1] = ""
+                else:
+                    # 末尾孤立标点，并入上一行
+                    if result:
+                        result[-1] = (result[-1] + part).strip()
+                    else:
+                        current = part
+            elif len(part) > max_chars:
+                # 单个文本 token 就超长，强制按 max_chars 切
+                while len(part) > max_chars:
+                    result.append(part[:max_chars].strip())
+                    part = part[max_chars:]
+                current = part
+            else:
                 current = part
 
         if current.strip():
@@ -196,13 +227,28 @@ class SubtitleGenerator:
 
         return durations
 
-    @staticmethod
-    def _format_entry(index: int, start: float, end: float, text: str) -> str:
-        """格式化单条 SRT 条目。"""
+    # 字幕显示时需要剥离的标点（保留问号 ？? 用于语气，其余标点一律去掉）
+    _STRIP_PUNCT_RE = re.compile(r"[，。！；：、,;:.!…‥\s“”‘’\"'（）()【】\[\]{}「」『』—～·]")
+
+    @classmethod
+    def _strip_punct(cls, text: str) -> str:
+        """去掉字幕文本中的标点符号，但保留问号（体现语气）。
+
+        字幕跟随语音，无需逗号/句号等标点；但问号能体现疑问语气，保留。
+        """
+        return cls._STRIP_PUNCT_RE.sub("", (text or "")).strip()
+
+    @classmethod
+    def _format_entry(cls, index: int, start: float, end: float, text: str) -> str:
+        """格式化单条 SRT 条目（自动剥离标点）。"""
+        clean_text = cls._strip_punct(text)
+        # 极端情况：去标点后为空（如原文全是标点），回退用原文
+        if not clean_text:
+            clean_text = (text or "").strip()
         return (
             f"{index}\n"
-            f"{SubtitleGenerator._format_time(start)} --> {SubtitleGenerator._format_time(end)}\n"
-            f"{text}\n"
+            f"{cls._format_time(start)} --> {cls._format_time(end)}\n"
+            f"{clean_text}\n"
         )
 
     @staticmethod

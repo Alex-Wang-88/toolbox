@@ -1,6 +1,6 @@
 # 跨平台 / 无 GPU 运行方案（PORTABILITY）
 
-> 本文档说明 toolbax 如何在 **Windows（同机 / 异机）**、**Linux**、**macOS**，
+> 本文档说明 TOOLBOX 如何在 **Windows（同机 / 异机）**、**Linux**、**macOS**，
 > 以及 **无 NVIDIA GPU（AMD / Intel / 纯 CPU）** 的机器上运行，并给出传 GitHub 前的检查清单。
 >
 > 配套文档：`docs/BUILD.md`（打包构建，含 Windows PyInstaller 与 macOS py2app）。
@@ -145,7 +145,7 @@ export APP_VARIANT=cpu
 
 ## 6. `.env` 处理
 
-- **切勿提交真实 Key**：`.env` 已被 `.gitignore` 排除（第 9 行）；`.env` 含 `TOOLBAX_API_KEY` 等密钥。
+- **切勿提交真实 Key**：`.env` 已被 `.gitignore` 排除（第 9 行）；`.env` 含 `TOOLBOX_API_KEY` 等密钥。
 - **生成方式**：从模板复制后填写
   ```bash
   cp config/.env.example .env
@@ -166,7 +166,7 @@ export APP_VARIANT=cpu
       （均已确认在 `.gitignore` 中。）
 - [ ] `git status` 不应列出：`.env`、`.venv/`、`venv_cosyvoice/`、`runtime/`、`tts_poc/`、
       `src/hardware_profile.json`、`app_data/` 等。
-- [ ] 源码中**无 `C:\Users\12992` 字面量**（`toolbax.py` 字体已改为 `WINDIR` 推导；
+- [ ] 源码中**无 `C:\Users\12992` 字面量**（`toolbox.py` 字体已改为 `WINDIR` 推导；
       `src/hardware_profile.json` 已删除；如仍有 Windows 候选路径必须位于 `os.name=='nt'` 守卫内）。
 - [ ] 依赖跨平台：根 `requirements.txt` 的 `pywin32` 已加 `; platform_system == "Windows"`；
       `config/requirements.txt` 已带平台标记。`tts_poc/requirements.txt` 的 `pynini`

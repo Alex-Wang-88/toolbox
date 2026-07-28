@@ -80,17 +80,47 @@ class VoiceMeta:
     language: str = "zh"
     created_at: str = ""
     sovits_lora: str = ""       # 已弃用字段（空=自动）
+    edge_voice: str = ""         # cloud_parallel 对应的 edge-tts ShortName
+    gender: str = ""             # female | male | child
+    group: str = ""              # edge | cosyvoice3
 
 
-# 默认（云端 Edge TTS 并行）为代码静态常量，永不被误删/误改，不落盘。
-# 本地克隆音色不再有"预设"概念，
-# 所有克隆项均为用户训练得到、动态写入 voices.json。
-STATIC_VOICES = [
-    VoiceMeta("default", "默认（云端 Edge TTS 并行）", "cloud_parallel", deletable=False),
+# 内置 zh-CN Edge TTS 音色清单，作为两个前端页面共享的单一数据源。
+EDGE_TTS_VOICE_LIST = [
+    {"id": "edge_zh-CN-XiaoxiaoNeural", "name": "晓晓（女声·温暖自然）", "edge_voice": "zh-CN-XiaoxiaoNeural", "gender": "female"},
+    {"id": "edge_zh-CN-XiaoyiNeural", "name": "晓伊（女声·亲切柔和）", "edge_voice": "zh-CN-XiaoyiNeural", "gender": "female"},
+    {"id": "edge_zh-CN-liaoning-XiaobeiNeural", "name": "小贝（女声·东北口音）", "edge_voice": "zh-CN-liaoning-XiaobeiNeural", "gender": "female"},
+    {"id": "edge_zh-CN-shaanxi-XiaoniNeural", "name": "小妮（女声·陕西口音）", "edge_voice": "zh-CN-shaanxi-XiaoniNeural", "gender": "female"},
+    {"id": "edge_zh-CN-YunxiNeural", "name": "云希（男声·年轻自然）", "edge_voice": "zh-CN-YunxiNeural", "gender": "male"},
+    {"id": "edge_zh-CN-YunjianNeural", "name": "云健（男声·沉稳播音）", "edge_voice": "zh-CN-YunjianNeural", "gender": "male"},
+    {"id": "edge_zh-CN-YunyangNeural", "name": "云扬（男声·新闻播报）", "edge_voice": "zh-CN-YunyangNeural", "gender": "male"},
+    {"id": "edge_zh-CN-YunxiaNeural", "name": "云夏（男童声·活泼）", "edge_voice": "zh-CN-YunxiaNeural", "gender": "child"},
 ]
 
-# 不可被重命名 / 删除的静态 id 集合
-STATIC_IDS = {v.id for v in STATIC_VOICES}
+EDGE_DEFAULT_VOICE_ID = "default"
+EDGE_DEFAULT_VOICE_NAME = "zh-CN-XiaoxiaoNeural"
+
+STATIC_VOICES = [
+    VoiceMeta(
+        # 默认音色保留历史兼容 ID；名称等展示信息只从上方清单读取，
+        # 避免两个前端未来再次出现同一音色名称不一致。
+        id=(
+            EDGE_DEFAULT_VOICE_ID
+            if item["edge_voice"] == EDGE_DEFAULT_VOICE_NAME
+            else item["id"]
+        ),
+        name=item["name"],
+        type="cloud_parallel",
+        deletable=False,
+        edge_voice=item["edge_voice"],
+        gender=item["gender"],
+        group="edge",
+    )
+    for item in EDGE_TTS_VOICE_LIST
+]
+
+_LEGACY_XIAOXIAO_ID = "edge_zh-CN-XiaoxiaoNeural"
+STATIC_IDS = {v.id for v in STATIC_VOICES} | {_LEGACY_XIAOXIAO_ID}
 
 
 class VoiceRegistry:
@@ -180,6 +210,8 @@ class VoiceRegistry:
         return result
 
     def get_voice(self, voice_id: str):
+        if voice_id == _LEGACY_XIAOXIAO_ID:
+            voice_id = EDGE_DEFAULT_VOICE_ID
         for v in STATIC_VOICES:
             if v.id == voice_id:
                 return v

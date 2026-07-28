@@ -19,18 +19,18 @@ FFmpeg 需已安装（`winget install ffmpeg` 或 `brew install ffmpeg`）。
 ### 方式一：使用 spec 文件（推荐）
 
 ```powershell
-python -m PyInstaller --noconfirm --clean config/toolbax.spec
+python -m PyInstaller --noconfirm --clean config/TOOLBOX.spec
 ```
 
-产物：`dist/toolbax/toolbax.exe`
+产物：`dist/TOOLBOX/TOOLBOX.exe`
 
 ### 方式二：命令行直接打包
 
 ```powershell
 python -m PyInstaller --noconfirm --clean --windowed `
-  --name "toolbax" `
+  --name "TOOLBOX" `
   --add-data "static/index.html;static" `
-  --hidden-import toolbax `
+  --hidden-import toolbox `
   --hidden-import hardware_profile `
   --hidden-import document_converter `
   --hidden-import edge_tts `
@@ -48,18 +48,18 @@ python -m PyInstaller --noconfirm --clean --windowed `
   src/app_launcher.py
 ```
 
-产物：`dist/toolbax/toolbax.exe`
+产物：`dist/TOOLBOX/TOOLBOX.exe`
 
 ### 打包无依赖版
 
 ```powershell
 # 1. 先按上面打包出 exe
-# 2. 复制 LibreOffice 便携版到 dist/toolbax/LibreOffice/
+# 2. 复制 LibreOffice 便携版到 dist/TOOLBOX/LibreOffice/
 # 3. 删除没用的大文件，打包成 zip
 ```
 
 无依赖版必须有：
-- `toolbax.exe`
+- `TOOLBOX.exe`
 - `LibreOffice/` 文件夹
 - 可选：`使用说明_无依赖Windows版.txt`
 
@@ -111,7 +111,7 @@ DATA_FILES = [
 OPTIONS = {
     'argv_emulation': False,
     'packages': [
-        'toolbax', 'hardware_profile', 'document_converter',
+        'toolbox', 'hardware_profile', 'document_converter',
         'edge_tts', 'pysrt', 'requests',
         'moviepy', 'imageio', 'imageio_ffmpeg',
         'PIL', 'fitz', 'docx', 'lxml',
@@ -119,7 +119,7 @@ OPTIONS = {
         'numpy', 'asyncio',
     ],
     'includes': [
-        'toolbax', 'hardware_profile', 'document_converter',
+        'toolbox', 'hardware_profile', 'document_converter',
         'edge_tts', 'pysrt',
     ],
     'excludes': [
@@ -128,8 +128,8 @@ OPTIONS = {
     'resources': [],
     'iconfile': None,  # 可选: 'icon.icns',
     'plist': {
-        'CFBundleName': 'toolbax',
-        'CFBundleDisplayName': 'toolbax',
+        'CFBundleName': 'TOOLBOX',
+        'CFBundleDisplayName': 'TOOLBOX',
         'CFBundleIdentifier': 'com.image-to-video.app',
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
@@ -140,7 +140,7 @@ OPTIONS = {
 }
 
 setup(
-    name='toolbax',
+    name='TOOLBOX',
     app=APP,
     data_files=DATA_FILES,
     options={'py2app': OPTIONS},
@@ -159,14 +159,14 @@ python setup.py py2app --alias  # 调试模式，启动快
 python setup.py py2app           # 正式发布模式
 ```
 
-产物：`dist/toolbax.app`
+产物：`dist/TOOLBOX.app`
 
 ### 使用方式
 
 ```bash
-# 双击 dist/toolbax.app 启动
+# 双击 dist/TOOLBOX.app 启动
 # 或在终端运行：
-open dist/toolbax.app
+open dist/TOOLBOX.app
 ```
 
 首次启动时可能会显示安全提示，需要在「系统设置 → 隐私与安全性」中允许运行。
@@ -174,11 +174,11 @@ open dist/toolbax.app
 ### macOS 打包注意事项
 
 1. **py2app 需要 macOS 机器**，无法跨平台打包
-2. **.app 实际上是文件夹**，终端执行的是 `dist/toolbax.app/Contents/MacOS/app_launcher`
+2. **.app 实际上是文件夹**，终端执行的是 `dist/TOOLBOX.app/Contents/MacOS/app_launcher`
 3. **嵌入 LibreOffice**：不建议嵌入，Mac 上要求用户通过 brew 自行安装
 4. **签名**：如果需要分发，需用 Apple Developer 证书签名：
    ```bash
-   codesign --deep --force --verify --verbose --sign "Developer ID Application" dist/toolbax.app
+   codesign --deep --force --verify --verbose --sign "Developer ID Application" dist/TOOLBOX.app
    ```
 5. **字体**：PingFang SC / STHeiti 是 macOS 系统自带，无需打包
 6. **打包常见问题**：
@@ -215,4 +215,4 @@ A: PyInstaller 默认会收集大量依赖，尝试：
 
 ### Q: macOS .app 提示已损坏/无法验证？
 
-A: 临时解决：`xattr -cr /Applications/toolbax.app`
+A: 临时解决：`xattr -cr /Applications/TOOLBOX.app`

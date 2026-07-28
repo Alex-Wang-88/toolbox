@@ -9,7 +9,7 @@ SRC = os.path.join(ROOT, "src")
 sys.path.insert(0, SRC)
 os.chdir(ROOT)
 
-import toolbax as pipeline
+import toolbox as pipeline
 pipeline.OUTPUT_FOLDER = os.path.join(ROOT, "output")
 pipeline.init_output_folders()
 

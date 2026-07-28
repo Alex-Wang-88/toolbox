@@ -3,7 +3,7 @@
 
 集中定义所有运行时目录，消除此前散落在 web_server / gpu_arbiter /
 hardware_profile / multi_tts_voice / gpu_setup / audio_transcriber /
-toolbax / enterprise_solution_to_video 中的重复 PROJECT_ROOT / DATA_ROOT
+TOOLBOX / enterprise_solution_to_video 中的重复 PROJECT_ROOT / DATA_ROOT
 解析逻辑。本模块不 import 任何 src 业务模块，杜绝循环依赖。
 
 解析规则：
@@ -12,12 +12,12 @@ toolbax / enterprise_solution_to_video 中的重复 PROJECT_ROOT / DATA_ROOT
 
 本次统一顺手修复两类历史问题：
 1. 打包态路径 bug —— multi_tts_voice._project_root() / gpu_setup._project_root()
-   / audio_transcriber.PROJECT_ROOT / toolbax 函数内 SRC_DIR / enterprise 脚本
+   / audio_transcriber.PROJECT_ROOT / TOOLBOX 函数内 SRC_DIR / enterprise 脚本
    此前不区分 frozen，打包后 __file__ 落在 _MEIPASS，会解析到错误目录。
-2. OUTPUT_FOLDER 默认值不一致 —— toolbax 默认 'output'（相对 cwd）与 web_server
+2. OUTPUT_FOLDER 默认值不一致 —— TOOLBOX 默认 'output'（相对 cwd）与 web_server
    的 app_data/output（绝对）不一致，CLI 与 web 写到不同位置；现统一为相对路径
    'output'（相对进程启动 cwd＝项目根，即项目根/output，与项目说明书目录结构一致）。
-   toolbax 仍尊重 TOOLBAX_OUTPUT_FOLDER 环境变量（在 .env 加载后求值）；
+   TOOLBOX 仍尊重 TOOLBOX_OUTPUT_FOLDER 环境变量（在 .env 加载后求值）；
    web_server 用此默认，可被 output_settings.json 运行时覆盖。
 """
 
@@ -52,7 +52,7 @@ else:
 UPLOAD_FOLDER = os.path.join(DATA_ROOT, "temp_uploads")        # 上传素材暂存
 # 输出目录用相对路径 "output"（相对进程启动 cwd＝项目根，即项目根/output），与项目
 # 说明书目录结构一致（output/ 与 app_data/ 同级），保证可移植性。不在此读环境变量：
-# paths 的 import 时机早于 .env 加载，环境变量由 toolbax 在 load_env_file() 后读取。
+# paths 的 import 时机早于 .env 加载，环境变量由 TOOLBOX 在 load_env_file() 后读取。
 OUTPUT_FOLDER = "output"
 OUTPUT_SETTINGS_FILE = os.path.join(DATA_ROOT, "output_settings.json")  # 输出目录配置
 TTS_CACHE_DIR = os.path.join(DATA_ROOT, "tts_cache")           # TTS 分段缓存

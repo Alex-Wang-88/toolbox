@@ -1,4 +1,4 @@
-# toolbax
+# TOOLBOX
 
 > 基于 Web 的「素材转讲解视频」工具：接收图片、PDF、PPT/PPTX、Word 等素材，自动生成带 AI 讲解语音与字幕的视频，并提供本地 GPU 语音克隆能力。
 
@@ -7,10 +7,10 @@
 - **多格式素材 → 讲解视频**：图片 / PDF / PPT / Word → 分页图片 → 带配音与字幕的视频
 - **多种 TTS 引擎**
   - `edge-tts`：微软在线 TTS，默认与兜底引擎（需联网）
-  - `CosyVoice3`（0.5B，阿里开源）：本地零样本语音克隆，运行在独立 venv 的常驻 Worker 子进程
-- **视频合成**：MoviePy + 内置 FFmpeg，支持字幕、配音、进度回调
+  - `CosyVoice3`（0.5B，阿里开源）：本地零样本语音克隆，运行在独立 venv 的常驻 Worker 子进程（**可选**，需 NVIDIA GPU ≥ 6GB 显存 + CUDA 12.8 驱动；无 GPU 时自动降级为 Edge TTS）
+- **视频合成**：MoviePy + FFmpeg（打包态自带，源码运行需单独安装或放到 `bin/`），支持字幕、配音、进度回调
 - **企业方案链接 → 智能体生成 Word → 复用文档转视频**（命令行入口）
-- **桌面启动器**：PyInstaller 打包为 exe / py2app 打包为 .app
+- **桌面启动器**：PyInstaller 打包为 Windows exe（含自带 FFmpeg 与 Python 运行时）
 
 ## 系统架构
 
@@ -36,12 +36,12 @@
 ## 目录结构（纳入版本控制部分）
 
 ```
-toolbax/
+TOOLBOX/
 ├── src/                 # 源代码（web_server / 视频生成 / TTS Worker / 文档转换 等）
 ├── scripts/             # 辅助脚本
 ├── tests/               # 测试
 ├── static/index.html    # 前端页面
-├── config/              # .env.example / start.bat / toolbax.spec / requirements.txt
+├── config/              # .env.example / start.bat / start.sh / requirements.txt
 ├── docs/                # README / BUILD / TESTING / 设计文档
 ├── deliverables/        # 交付文档
 ├── build_exes.py        # PyInstaller 打包入口
@@ -50,6 +50,15 @@ toolbax/
 └── 项目说明书.md         # 完整项目手册（安装/配置/排错）
 ```
 
+## 硬件要求
+
+| 场景 | GPU | 说明 |
+|---|---|---|
+| **主线流程**（素材→视频） | 不需要 | Edge TTS 在线合成，仅需联网 |
+| **本地语音克隆**（CosyVoice3） | **NVIDIA GPU ≥ 6GB 显存**，CUDA 12.8 驱动 | 无 GPU / 非 N 卡时自动降级为 Edge TTS |
+
+详细配置见 [`项目说明书.md`](项目说明书.md) §5 与 [`docs/PORTABILITY.md`](docs/PORTABILITY.md)。
+
 ## 配置
 
 参考 [`config/.env.example`](config/.env.example)，把真实值写入项目根目录的 `.env`（程序启动时自动加载）。
@@ -57,17 +66,17 @@ toolbax/
 
 | 变量 | 说明 |
 |---|---|
-| `TOOLBAX_API_KEY` / `TOOLBAX_API_URL` | AI 话术 API（未设置则用兜底话术） |
+| `TOOLBOX_API_KEY` / `TOOLBOX_API_URL` | AI 话术 API（未设置则用兜底话术） |
 | `SOLUTION_AGENT_API_KEY` / `SOLUTION_AGENT_API_URL` | 企业方案智能体 |
 | `APP_VARIANT` | `gpu` / `cpu`，主流程是否启用 GPU |
-| `TOOLBAX_OUTPUT_FOLDER` | 输出目录（默认 `output`） |
+| `TOOLBOX_OUTPUT_FOLDER` | 输出目录（默认 `output`） |
 
 ## 技术栈
 
 - **前端**：HTML5 / CSS3 / 原生 JavaScript（无框架）
 - **后端**：Python 3.13 + Flask + flask-cors
 - **TTS**：edge-tts、CosyVoice3（本地 GPU）
-- **媒体**：MoviePy、FFmpeg（内置）、PyAV、faster-whisper
+- **媒体**：MoviePy、FFmpeg、PyAV、faster-whisper
 - **文档**：PyMuPDF、python-docx、PowerPoint COM / LibreOffice
 
 ## 许可证

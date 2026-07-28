@@ -177,5 +177,5 @@ flowchart TD
 ---
 
 ### 附：与现有代码的对齐点（仅供架构师定位，不改代码）
-- `src/toolbax.py`: `VOICE`(L105)、`tts_single_paragraph()`(L785, async/edge_tts)、`batch_generate_tts()`(L927, 串行→需并行化)、`synthesize_with_windows_sapi()`(L838, 兜底)。
+- `src/TOOLBOX.py`: `VOICE`(L105)、`tts_single_paragraph()`(L785, async/edge_tts)、`batch_generate_tts()`(L927, 串行→需并行化)、`synthesize_with_windows_sapi()`(L838, 兜底)。
 - `src/web_server.py`: `DATA_ROOT`(L41-44)、`temp_uploads`(L52)、`tasks` 进度字典、`/api/generate`(L524)、`/api/status/<task_id>`(L573)、`allowed_file()`(L208, 可参考做上传校验)。

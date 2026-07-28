@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """CosyVoice 3 常驻 Worker 进程（在 venv_cosyvoice / Python 3.13 中运行）。
 
@@ -44,7 +44,7 @@ if sys.platform == "win32":
 
 
 # 路径注入：src/（协议） + tts_poc/CosyVoice（引擎包）
-# 注意：本 worker 位于 toolbax/src/tts_workers/，需从 HERE 上两级到 toolbax/，再进 tts_poc
+# 注意：本 worker 位于 TOOLBOX/src/tts_workers/，需从 HERE 上两级到 TOOLBOX/，再进 tts_poc
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(HERE)
 sys.path.insert(0, SRC)

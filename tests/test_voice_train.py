@@ -12,7 +12,7 @@ def main():
     print('1. 上传参考音频...')
     HERE = os.path.dirname(os.path.abspath(__file__))
     ROOT = os.path.dirname(HERE)  # 项目根（tests/ 的上一级）
-    ref_audio_path = os.environ.get("TOOLBAX_TEST_REF_AUDIO") or os.path.join(ROOT, "test_inputs", "ref_audio.wav")
+    ref_audio_path = os.environ.get("TOOLBOX_TEST_REF_AUDIO") or os.path.join(ROOT, "test_inputs", "ref_audio.wav")
     with open(ref_audio_path, 'rb') as f:
         resp = requests.post('http://localhost:5000/api/voices/upload', 
                            files={'file': ('ref_audio.wav', f, 'audio/wav')})

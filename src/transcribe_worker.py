@@ -6,7 +6,7 @@ import os
 import sys
 
 
-RESULT_PREFIX = "TOOLBAX_TRANSCRIPT_JSON="
+RESULT_PREFIX = "TOOLBOX_TRANSCRIPT_JSON="
 
 
 def emit(payload):

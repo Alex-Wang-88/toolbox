@@ -218,6 +218,20 @@
             min-height: 16px;
         }
 
+        /* ===== 音色二级分组，与图片视频生成页保持一致 ===== */
+        .voice-group { border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+        .voice-group + .voice-group { margin-top: 8px; }
+        .voice-group-summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; padding: 10px 12px; background: #f8fafc; color: var(--accent-dark); font-size: 13px; font-weight: 800; user-select: none; }
+        .voice-group-summary::-webkit-details-marker { display: none; }
+        .voice-group-arrow { display: inline-block; width: 12px; color: var(--muted); transition: transform .18s ease; font-size: 10px; }
+        .voice-group[open] > .voice-group-summary .voice-group-arrow { transform: rotate(90deg); }
+        .voice-group-title { flex: 1; min-width: 0; }
+        .voice-group-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 700; }
+        .voice-group-body { padding: 8px 8px 8px 12px; display: grid; gap: 8px; }
+        .voice-subgroup { display: grid; gap: 6px; }
+        .voice-subgroup-title { font-size: 11px; font-weight: 800; color: var(--muted); padding: 2px 0 0 2px; letter-spacing: 0.5px; }
+        .voice-group .voice-item { padding: 7px 10px; }
+
         .voice-create { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
         .voice-create > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; padding: 11px 13px; color: var(--accent-dark); font-size: 13px; font-weight: 800; }
         .voice-create > summary::-webkit-details-marker { display: none; }
@@ -580,6 +594,15 @@
                     <div class="hint">范围 0.70× ~ 1.50×，默认 1.00×（原速）</div>
                 </div>
 
+                <div class="block">
+                    <label class="field-label">配音音量</label>
+                    <div class="speed-row">
+                        <input type="range" id="voiceVolumeRange" min="0" max="200" step="5" value="100">
+                        <span class="speed-value" id="voiceVolumeValue">100%</span>
+                    </div>
+                    <div class="hint">范围 0% ~ 200%，默认 100%；增强音量时会自动限幅。</div>
+                </div>
+
                 <div class="row-actions">
                     <button class="primary" id="generateBtn" type="button">生成音频</button>
                     <button class="secondary" id="clearBtn" type="button">清空</button>
@@ -673,6 +696,7 @@
             const state = {
                 voices: [],
                 selectedVoiceId: 'default',
+                voiceGroupExpanded: { edge: false, clone: false },
                 generating: false,
                 history: [],
                 selectedVoiceFile: null,
@@ -688,6 +712,8 @@
             const charCount = $('charCount');
             const speedRange = $('speedRange');
             const speedValue = $('speedValue');
+            const voiceVolumeRange = $('voiceVolumeRange');
+            const voiceVolumeValue = $('voiceVolumeValue');
             const generateBtn = $('generateBtn');
             const clearBtn = $('clearBtn');
             const progressCard = $('progressCard');
@@ -714,6 +740,7 @@
             const voiceConsentInput = $('voiceConsentInput');
             const voiceCreateBtn = $('voiceCreateBtn');
             const voiceCreateStatus = $('voiceCreateStatus');
+            const TTS_VOICE_VOLUME_KEY = 'toolbox_tts_voice_volume';
 
             // ===== Utils =====
             function escapeHtml(s) {
@@ -775,10 +802,23 @@
                     voiceList.innerHTML = '<div class="hint">暂无可用音色</div>';
                     return;
                 }
-                voiceList.innerHTML = voices.map((v) => {
+                const edgeVoices = voices.filter((v) =>
+                    v.group === 'edge' || (v.type === 'cloud_parallel' && v.group !== 'cosyvoice3')
+                );
+                const cloneVoices = voices.filter((v) =>
+                    v.group === 'cosyvoice3' || v.type === 'cosyvoice3'
+                );
+                const edgeFemale = edgeVoices.filter((v) => v.gender === 'female');
+                const edgeMale = edgeVoices.filter((v) => v.gender === 'male');
+                const edgeChild = edgeVoices.filter((v) => v.gender === 'child');
+                const edgeOther = edgeVoices.filter((v) =>
+                    !v.gender || !['female', 'male', 'child'].includes(v.gender)
+                );
+
+                function renderItem(v) {
                     const selected = v.id === state.selectedVoiceId ? ' selected' : '';
                     const unavailable = v.available === false ? ' unavailable' : '';
-                    const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : '默认云端';
+                    const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : 'Edge TTS 云端';
                     const statusLabel = v.available === false
                         ? (v.availability_reason || '当前不可用')
                         : typeLabel;
@@ -799,7 +839,45 @@
                             ${actions}
                         </div>
                     `;
-                }).join('');
+                }
+
+                function renderEdgeSubgroup(label, items) {
+                    if (!items.length) return '';
+                    return `
+                        <div class="voice-subgroup">
+                            <div class="voice-subgroup-title">${escapeHtml(label)}</div>
+                            ${items.map(renderItem).join('')}
+                        </div>`;
+                }
+
+                const edgeHtml = !edgeVoices.length ? '' : `
+                    <details class="voice-group edge-group"${state.voiceGroupExpanded.edge ? ' open' : ''}>
+                        <summary class="voice-group-summary">
+                            <span class="voice-group-arrow">▶</span>
+                            <span class="voice-group-title">Edge TTS 云端音色</span>
+                            <span class="voice-group-count">${edgeVoices.length}</span>
+                        </summary>
+                        <div class="voice-group-body">
+                            ${renderEdgeSubgroup('女声', edgeFemale)}
+                            ${renderEdgeSubgroup('男声', edgeMale)}
+                            ${renderEdgeSubgroup('童声', edgeChild)}
+                            ${renderEdgeSubgroup('其他', edgeOther)}
+                        </div>
+                    </details>`;
+
+                const cloneHtml = !cloneVoices.length ? '' : `
+                    <details class="voice-group clone-group"${state.voiceGroupExpanded.clone ? ' open' : ''}>
+                        <summary class="voice-group-summary">
+                            <span class="voice-group-arrow">▶</span>
+                            <span class="voice-group-title">CosyVoice3 本地克隆</span>
+                            <span class="voice-group-count">${cloneVoices.length}</span>
+                        </summary>
+                        <div class="voice-group-body">
+                            ${cloneVoices.map(renderItem).join('')}
+                        </div>
+                    </details>`;
+
+                voiceList.innerHTML = edgeHtml + cloneHtml;
                 updateSelectedLabel();
             }
 
@@ -809,6 +887,15 @@
             }
 
             voiceList.addEventListener('click', (event) => {
+                const groupSummary = event.target.closest('.voice-group-summary');
+                if (groupSummary) {
+                    const group = groupSummary.closest('.voice-group');
+                    if (group) {
+                        const key = group.classList.contains('edge-group') ? 'edge' : 'clone';
+                        state.voiceGroupExpanded[key] = !group.open;
+                    }
+                    return;
+                }
                 // 先判断是否点中操作按钮（重命名 / 导出 / 删除），点操作按钮时不触发选中
                 const actionBtn = event.target.closest('[data-action]');
                 if (actionBtn) {
@@ -1050,6 +1137,24 @@
                 speedValue.textContent = `${parseFloat(speedRange.value).toFixed(2)}×`;
             });
 
+            function getVoiceVolume() {
+                const percent = parseFloat(voiceVolumeRange.value);
+                return Math.max(0, Math.min(2, (Number.isFinite(percent) ? percent : 100) / 100));
+            }
+
+            function setVoiceVolume(value) {
+                const normalized = Math.max(0, Math.min(2, Number(value) || 0));
+                const percent = Math.round(normalized * 100 / 5) * 5;
+                voiceVolumeRange.value = String(percent);
+                voiceVolumeValue.textContent = `${percent}%`;
+            }
+
+            voiceVolumeRange.addEventListener('input', () => {
+                const value = getVoiceVolume();
+                setVoiceVolume(value);
+                try { localStorage.setItem(TTS_VOICE_VOLUME_KEY, String(value)); } catch (e) {}
+            });
+
             // ===== Clear =====
             clearBtn.addEventListener('click', () => {
                 textInput.value = '';
@@ -1136,6 +1241,7 @@
                             text,
                             voice: state.selectedVoiceId,
                             speed: parseFloat(speedRange.value),
+                            voice_volume: getVoiceVolume(),
                             with_video: false,
                             image: null,
                             async: true,
@@ -1169,6 +1275,7 @@
                         voice: voiceName,
                         audioUrl,
                         speed: parseFloat(speedRange.value),
+                        volume: getVoiceVolume(),
                         time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
                     });
                 } catch (err) {
@@ -1201,7 +1308,7 @@
                     <div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;background:var(--soft);">
                         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;">
                             <span style="font-size:12px;color:var(--muted);font-weight:700;">#${idx + 1} · ${escapeHtml(h.voice)} · ${escapeHtml(h.time)}</span>
-                            <span style="font-size:11px;color:var(--muted);">${h.speed.toFixed(2)}×</span>
+                            <span style="font-size:11px;color:var(--muted);">${h.speed.toFixed(2)}× · ${Math.round((h.volume ?? 1) * 100)}%</span>
                         </div>
                         <div style="font-size:13px;margin-bottom:6px;word-break:break-all;">${escapeHtml(h.text.length > 100 ? h.text.slice(0, 100) + '...' : h.text)}</div>
                         <audio controls preload="none" src="${escapeHtml(h.audioUrl)}" style="width:100%;"></audio>
@@ -1210,6 +1317,12 @@
             }
 
             // ===== Init =====
+            try {
+                const savedVolume = parseFloat(localStorage.getItem(TTS_VOICE_VOLUME_KEY));
+                setVoiceVolume(Number.isFinite(savedVolume) ? savedVolume : 1);
+            } catch (e) {
+                setVoiceVolume(1);
+            }
             loadVoices();
             textInput.focus();
         })();

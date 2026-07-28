@@ -37,7 +37,7 @@ SPARSE_SAMPLE_FACTORS = {
     "all": 1.05,
 }
 # cosyvoice3 首次加载固定开销（与图片数无关，每次启动 worker 都会触发一次）。
-# 从 estimate_tts_time.ENGINE_MODEL_LOAD 同口径，实测 fp16 ���重加载 GPU 约 30–60s。
+# 从 estimate_tts_time.ENGINE_MODEL_LOAD 同口径，实测 fp16 权重加载 GPU 约 30–60s。
 FIRST_LOAD_OVERHEAD = 45
 
 # 缓存命中自动检测阈值系数：若某样本 elapsed < 同模式中位数 × 此值，

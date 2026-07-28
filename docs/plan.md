@@ -1,4 +1,4 @@
-# toolbax 方案设计文档
+# TOOLBOX 方案设计文档
 ## 文档信息
 - 版本：V1.0
 - 更新日期：2026-05-07
@@ -584,7 +584,7 @@ if __name__ == "__main__":
     AGENT_API_KEY = YOUR_API_KEY
     start_time = time.time()
     print("="*50)
-    print("🚀 toolbax 开始执行")
+    print("🚀 TOOLBOX 开始执行")
     print("="*50)
 
     try:

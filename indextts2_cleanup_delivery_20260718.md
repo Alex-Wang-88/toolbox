@@ -1,7 +1,7 @@
 # IndexTTS2 残留清理交付报告
 
 > 时间：2026-07-18 00:55 CST
-> 任务：在已切换到 CosyVoice3 的 toolbax 项目中，清理所有 IndexTTS2 / Modal 云端时代的残留文件和过时引用，让代码库只剩 CosyVoice3 + Edge TTS 双引擎。
+> 任务：在已切换到 CosyVoice3 的 TOOLBOX 项目中，清理所有 IndexTTS2 / Modal 云端时代的残留文件和过时引用，让代码库只剩 CosyVoice3 + Edge TTS 双引擎。
 
 ## 一、删除项
 

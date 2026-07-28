@@ -10,7 +10,7 @@ SRC_DIR = str(PROJECT_ROOT / "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-import toolbax
+import toolbox as TOOLBOX
 
 
 def image_items(count=4):
@@ -20,10 +20,10 @@ def image_items(count=4):
 class AgentResponseParserTests(unittest.TestCase):
     def test_upload_and_ai_batch_callbacks_report_progress(self):
         upload_events = []
-        with mock.patch.object(toolbax, "upload_single_image", side_effect=lambda path: {
+        with mock.patch.object(TOOLBOX, "upload_single_image", side_effect=lambda path: {
             "file_path": path, "image_url": "https://example.invalid/image", "global_id": None,
         }):
-            uploaded = toolbax.batch_upload_images(
+            uploaded = TOOLBOX.batch_upload_images(
                 ["one.png", "two.png"],
                 progress_callback=lambda done, total, message, indeterminate: upload_events.append((done, total, message, indeterminate)),
             )
@@ -39,8 +39,8 @@ class AgentResponseParserTests(unittest.TestCase):
                 for item in batch
             ) + ']}'
 
-        with mock.patch.object(toolbax, "call_agent_api_sse", side_effect=fake_agent):
-            result = toolbax.generate_full_speech_result(
+        with mock.patch.object(TOOLBOX, "call_agent_api_sse", side_effect=fake_agent):
+            result = TOOLBOX.generate_full_speech_result(
                 uploaded,
                 progress_callback=lambda done, total, message, indeterminate: ai_events.append((done, total, message, indeterminate)),
             )
@@ -62,8 +62,8 @@ class AgentResponseParserTests(unittest.TestCase):
                 for item in batch
             ) + ']}'
 
-        with mock.patch.object(toolbax, "call_agent_api_sse", side_effect=fake_agent):
-            result = toolbax.generate_full_speech_result(items)
+        with mock.patch.object(TOOLBOX, "call_agent_api_sse", side_effect=fake_agent):
+            result = TOOLBOX.generate_full_speech_result(items)
 
         self.assertEqual([len(batch) for batch, _ in calls], [10, 10, 3])
         self.assertEqual(len({kwargs["session_id"] for _, kwargs in calls}), 1)
@@ -76,12 +76,12 @@ class AgentResponseParserTests(unittest.TestCase):
             {"global_id": index, "name": f"第{index}页", "image_url": "https://example.invalid/image"}
             for index in range(1, 3)
         ]
-        first = toolbax.build_api_messages(first_items, batch_index=0, batch_count=2)
+        first = TOOLBOX.build_api_messages(first_items, batch_index=0, batch_count=2)
         followup_items = [
             {"global_id": index, "name": f"第{index}页", "image_url": "https://example.invalid/image"}
             for index in range(11, 13)
         ]
-        followup = toolbax.build_api_messages(followup_items, batch_index=1, batch_count=2)
+        followup = TOOLBOX.build_api_messages(followup_items, batch_index=1, batch_count=2)
 
         first_payload = __import__("json").loads(first[0]["content"][0]["text"])
         followup_payload = __import__("json").loads(followup[0]["content"][0]["text"])
@@ -99,7 +99,7 @@ class AgentResponseParserTests(unittest.TestCase):
           ]
         }'''
 
-        result = toolbax.parse_agent_response(raw, image_items())
+        result = TOOLBOX.parse_agent_response(raw, image_items())
 
         self.assertEqual(result["speech"][4], "第四页不应包含大括号。")
         self.assertNotIn("{", result["speech"][4])
@@ -111,14 +111,14 @@ class AgentResponseParserTests(unittest.TestCase):
 ```
 请查收。'''
 
-        result = toolbax.parse_agent_response(raw, image_items())
+        result = TOOLBOX.parse_agent_response(raw, image_items())
 
         self.assertEqual(result["speech"][4], "第四页话术。")
 
     def test_json_fragment_is_not_used_as_page_text(self):
         raw = '{"video_filename":"损坏响应","items":[{"image_id":1,"speech":"未闭合"}'
 
-        result = toolbax.parse_agent_response(raw, image_items(1))
+        result = TOOLBOX.parse_agent_response(raw, image_items(1))
 
         self.assertNotIn("video_filename", result["speech"][1])
         self.assertNotIn("{", result["speech"][1])

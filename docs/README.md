@@ -1,4 +1,4 @@
-# toolbax
+# TOOLBOX
 
 一个基于 Web 的素材转讲解视频工具，支持图片与文档输入，自动生成带讲解和字幕的视频。
 
@@ -20,8 +20,8 @@
 ├── src/                         # 源代码
 │   ├── web_server.py           # Web 服务器（Flask）
 │   ├── app_launcher.py         # 桌面启动器
-│   ├── toolbax.py       # 视频生成核心模块
-│   ├── toolbax_web.py   # 另一套 Web 入口（简易版）
+│   ├── toolbox.py       # 视频生成核心模块
+│   ├── TOOLBOX_web.py   # 另一套 Web 入口（简易版）
 │   ├── document_converter.py   # 文档转图片
 │   ├── hardware_profile.py     # 硬件检测
 │   └── enterprise_solution_to_video.py  # 企业方案入口
@@ -30,7 +30,7 @@
 ├── config/                     # 配置文件
 │   ├── .env.example           # 环境变量示例
 │   ├── requirements.txt       # Python 依赖清单
-│   ├── toolbax.spec              # PyInstaller 打包配置
+│   ├── TOOLBOX.spec              # PyInstaller 打包配置
 │   └── start.bat              # Windows 启动脚本
 ├── docs/                       # 文档
 │   ├── README.md
@@ -58,11 +58,11 @@ winget install ffmpeg   # Windows
 正式生成 AI 讲解前，需要设置 API Key：
 
 ```powershell
-$env:TOOLBAX_API_KEY="your_api_key"
-$env:TOOLBAX_API_URL="your_api_url"
+$env:TOOLBOX_API_KEY="your_api_key"
+$env:TOOLBOX_API_URL="your_api_url"
 ```
 
-也可以参考 `config/.env.example` 管理本地配置。未设置 `TOOLBAX_API_KEY` 时，程序会使用兜底话术，便于测试语音和视频合成流程。
+也可以参考 `config/.env.example` 管理本地配置。未设置 `TOOLBOX_API_KEY` 时，程序会使用兜底话术，便于测试语音和视频合成流程。
 
 ## 使用方法
 
@@ -116,7 +116,37 @@ POST /api/generate
 Content-Type: application/json
 
 Body: {
-  "files": ["path1", "path2", ...]
+  "files": ["path1", "path2", ...],
+  "voice_volume": 1.0,
+  "background_music_id": "bgm_0123456789abcdef",
+  "background_music_volume": 0.15
+}
+```
+
+`voice_volume` 范围为 `0.0–2.0`。背景音乐可省略；提供时会自动循环或裁剪到
+视频长度，并在结尾淡出。
+
+### 背景音乐
+```
+POST /api/background-music
+Content-Type: multipart/form-data
+Body: file (MP3 / WAV / M4A / AAC，最大 50MB)
+
+GET /api/background-music/{music_id}
+DELETE /api/background-music/{music_id}
+```
+
+### 快速 TTS
+```
+POST /api/tts/quick
+Content-Type: application/json
+
+Body: {
+  "text": "要合成的文字",
+  "voice": "default",
+  "speed": 1.0,
+  "voice_volume": 1.0,
+  "async": true
 }
 ```
 
@@ -166,12 +196,12 @@ A: 查看日志输出，检查：
 ### Q: 如何修改API配置？
 A: 通过环境变量配置：
 ```powershell
-$env:TOOLBAX_API_KEY="your_api_key"
-$env:TOOLBAX_API_URL="your_api_url"
+$env:TOOLBOX_API_KEY="your_api_key"
+$env:TOOLBOX_API_URL="your_api_url"
 ```
 
 ### Q: 如何修改视频分辨率？
-A: 编辑 `toolbax.py` 文件，修改：
+A: 编辑 `toolbox.py` 文件，修改：
 ```python
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080

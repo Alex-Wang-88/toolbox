@@ -3,7 +3,7 @@
 
 在 app 代码导入前执行：读取打进包的 variant.txt（位于 sys._MEIPASS 或 exe 同目录），
 内容应为 'gpu' 或 'cpu'；文件缺失/非法时默认 'gpu'。
-通过 os.environ['APP_VARIANT'] 暴露给应用（toolbax.USE_GPU_ACCEL 读取）。
+通过 os.environ['APP_VARIANT'] 暴露给应用（toolbox.USE_GPU_ACCEL 读取）。
 """
 
 import os

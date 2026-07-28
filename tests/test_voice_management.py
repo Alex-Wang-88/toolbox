@@ -36,6 +36,18 @@ def make_wav(duration_sec=5.0, leading_silence_sec=0.0):
 
 
 class VoiceValidationTests(unittest.TestCase):
+    def test_shared_edge_voice_catalog_contains_eight_unique_voices(self):
+        registry = VoiceRegistry(tempfile.mkdtemp())
+        edge_voices = [voice for voice in registry.list_voices() if voice.type == "cloud_parallel"]
+        self.assertEqual(len(edge_voices), 8)
+        self.assertEqual(len({voice.edge_voice for voice in edge_voices}), 8)
+        self.assertEqual(registry.get_voice("default").edge_voice, "zh-CN-XiaoxiaoNeural")
+        self.assertEqual(registry.get_voice("default").name, "晓晓（女声·温暖自然）")
+        self.assertEqual(
+            registry.get_voice("edge_zh-CN-XiaoxiaoNeural").id,
+            "default",
+        )
+
     def test_rejects_audio_shorter_than_three_seconds(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = os.path.join(temp_dir, "short.wav")
@@ -60,6 +72,42 @@ class VoiceValidationTests(unittest.TestCase):
 
 
 class VoiceCreateApiTests(unittest.TestCase):
+    def test_disabled_local_voice_is_reported_unavailable_even_when_dependency_exists(self):
+        import web_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_registry = web_server.VOICE_REGISTRY
+            registry = VoiceRegistry(temp_dir)
+            registry.add_clone(
+                name="测试本地音色",
+                ref_audio_rel="clone_test/speaker.wav",
+                duration_sec=5.0,
+                ref_text="测试参考文稿",
+                voice_id="clone_test",
+            )
+            web_server.VOICE_REGISTRY = registry
+            try:
+                with mock.patch.object(
+                    web_server.gpu_setup,
+                    "load_gpu_voice_settings",
+                    return_value={"enabled": False},
+                ), mock.patch.object(
+                    web_server.gpu_setup,
+                    "check_dependency",
+                    return_value=(True, "model-dir"),
+                ):
+                    response = web_server.app.test_client().get("/api/voices")
+                    body = response.get_json()
+                    local_voice = next(v for v in body["voices"] if v["id"] == "clone_test")
+                    self.assertFalse(local_voice["available"])
+                    self.assertIn("未启用", local_voice["availability_reason"])
+                    self.assertEqual(
+                        web_server._tts_check_voice("clone_test"),
+                        (False, "所选本地音色不可用，请先开启 GPU 语音加速并完成依赖安装"),
+                    )
+            finally:
+                web_server.VOICE_REGISTRY = old_registry
+
     def test_create_endpoint_registers_processed_voice(self):
         import web_server
 
