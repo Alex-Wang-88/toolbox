@@ -108,6 +108,18 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertIn("TOOLBOX_current_project_v2", self.html)
         self.assertIn("TOOLBOX_current_project_v1", self.html)
 
+    def test_video_page_has_voice_clip_editor(self):
+        for control_id in (
+            "voiceClipEditor", "voiceWaveform",
+            "voiceDenoiseInput", "voicePlaySelectionBtn", "voiceProcessedPreviewBtn",
+        ):
+            self.assertIn(f'id="{control_id}"', self.html)
+        self.assertNotIn('id="voiceClipStart"', self.html)
+        self.assertNotIn('id="voiceClipDuration"', self.html)
+        self.assertIn('role="slider"', self.html)
+        self.assertIn('src="/voice_clip_editor.js"', self.html)
+        self.assertIn("voiceClipEditor.appendTo", self.html)
+
 
 class TtsFrontendTests(unittest.TestCase):
     @classmethod
@@ -125,6 +137,14 @@ class TtsFrontendTests(unittest.TestCase):
         self.assertIn("录音逐字稿（选填）", self.html)
         self.assertIn("waitForQuickTask", self.html)
         self.assertIn("async: true", self.html)
+        for control_id in (
+            "voiceClipEditor", "voiceWaveform",
+            "voiceDenoiseInput", "voicePlaySelectionBtn", "voiceProcessedPreviewBtn",
+        ):
+            self.assertIn(f'id="{control_id}"', self.html)
+        self.assertNotIn('id="voiceClipStart"', self.html)
+        self.assertNotIn('id="voiceClipDuration"', self.html)
+        self.assertIn("voiceClipEditor.appendTo", self.html)
 
     def test_tts_page_uses_the_shared_color_theme_contract(self):
         self.assertIn('id="themeToggle"', self.html)

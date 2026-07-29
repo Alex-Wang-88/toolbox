@@ -70,6 +70,25 @@ class VoiceValidationTests(unittest.TestCase):
             self.assertLessEqual(result["duration_sec"], 15.1)
             self.assertTrue(os.path.isfile(target))
 
+    def test_manual_clip_and_light_denoise_are_applied(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "source.wav")
+            target = os.path.join(temp_dir, "voice", "speaker.wav")
+            with open(source, "wb") as output:
+                output.write(make_wav(12.0).read())
+            result = Validation().prepare_clone_ref(
+                source,
+                target,
+                clip_start=2.0,
+                clip_duration=6.0,
+                denoise=True,
+            )
+            self.assertTrue(result["ok"], result)
+            self.assertAlmostEqual(result["clip_start_sec"], 2.0, places=1)
+            self.assertAlmostEqual(result["duration_sec"], 6.0, delta=0.2)
+            self.assertTrue(result["denoised"])
+            self.assertFalse(result["auto_trimmed"])
+
 
 class VoiceCreateApiTests(unittest.TestCase):
     def test_disabled_local_voice_is_reported_unavailable_even_when_dependency_exists(self):
@@ -141,6 +160,45 @@ class VoiceCreateApiTests(unittest.TestCase):
                 self.assertEqual(os.listdir(web_server.UPLOAD_FOLDER), [])
             finally:
                 web_server.VOICE_REGISTRY = old_registry
+                web_server.VOICE_VALIDATION = old_validation
+                web_server.UPLOAD_FOLDER = old_upload
+
+    def test_analyze_and_preview_endpoints_support_the_clip_editor(self):
+        import web_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_validation = web_server.VOICE_VALIDATION
+            old_upload = web_server.UPLOAD_FOLDER
+            web_server.VOICE_VALIDATION = Validation()
+            web_server.UPLOAD_FOLDER = os.path.join(temp_dir, "uploads")
+            os.makedirs(web_server.UPLOAD_FOLDER, exist_ok=True)
+            try:
+                client = web_server.app.test_client()
+                analysis = client.post(
+                    "/api/voices/analyze",
+                    data={"file": (make_wav(18.0, leading_silence_sec=2.0), "sample.wav")},
+                    content_type="multipart/form-data",
+                )
+                analysis_body = analysis.get_json()
+                self.assertEqual(analysis.status_code, 200, analysis_body)
+                self.assertLessEqual(analysis_body["recommended_duration_sec"], 15.0)
+
+                preview = client.post(
+                    "/api/voices/preview",
+                    data={
+                        "file": (make_wav(8.0), "sample.wav"),
+                        "clip_start_sec": "1.0",
+                        "clip_duration_sec": "5.0",
+                        "denoise": "true",
+                    },
+                    content_type="multipart/form-data",
+                )
+                self.assertEqual(preview.status_code, 200, preview.get_json(silent=True))
+                self.assertEqual(preview.mimetype, "audio/wav")
+                self.assertEqual(preview.headers["X-Voice-Denoised"], "1")
+                self.assertGreater(len(preview.data), 1000)
+                preview.close()
+            finally:
                 web_server.VOICE_VALIDATION = old_validation
                 web_server.UPLOAD_FOLDER = old_upload
 

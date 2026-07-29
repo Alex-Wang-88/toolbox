@@ -526,6 +526,11 @@ def tts_page():
     return send_from_directory(STATIC_DIR, "tts.html")
 
 
+@app.route("/voice_clip_editor.js")
+def voice_clip_editor_script():
+    return send_from_directory(STATIC_DIR, "voice_clip_editor.js")
+
+
 @app.route("/api/client-alive", methods=["POST"])
 def client_alive():
     mark_client_alive()
@@ -1688,30 +1693,119 @@ def upload_voice():
     })
 
 
-@app.route("/api/voices/transcribe", methods=["POST"])
-def transcribe_voice_reference():
-    """Prepare the same reference clip used by cloning, then transcribe it locally."""
+def _voice_clip_options(form):
+    """Parse the optional user-confirmed clip and light-denoise controls."""
+    raw_start = (form.get("clip_start_sec") or "").strip()
+    raw_duration = (form.get("clip_duration_sec") or "").strip()
+    denoise = (form.get("denoise") or "").lower() in ("1", "true", "yes", "on")
+    if not raw_start and not raw_duration:
+        return {"clip_start": None, "clip_duration": None, "denoise": denoise}, ""
+    if not raw_start or not raw_duration:
+        return None, "裁剪起点和时长必须同时提供"
+    try:
+        clip_start = float(raw_start)
+        clip_duration = float(raw_duration)
+    except ValueError:
+        return None, "裁剪参数无效"
+    if not math.isfinite(clip_start) or not math.isfinite(clip_duration):
+        return None, "裁剪参数无效"
+    return {
+        "clip_start": clip_start,
+        "clip_duration": clip_duration,
+        "denoise": denoise,
+    }, ""
+
+
+def _save_voice_request_file(prefix):
+    """Validate request metadata and save its audio into a disposable directory."""
     file = request.files.get("file")
     if not file or not file.filename:
-        return jsonify({"ok": False, "reason": "请选择参考音频"}), 400
+        return None, None, None, (jsonify({"ok": False, "reason": "请选择参考音频"}), 400)
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in VOICE_VALIDATION.ALLOWED_EXT:
-        return jsonify({"ok": False, "reason": "仅支持 WAV 或 MP3 音频"}), 400
+        return None, None, None, (jsonify({"ok": False, "reason": "仅支持 WAV 或 MP3 音频"}), 400)
     file.seek(0, os.SEEK_END)
     size = file.tell()
     file.seek(0)
     if size <= 0 or size > VOICE_VALIDATION.MAX_SIZE_MB * 1024 * 1024:
-        return jsonify({"ok": False, "reason": "音频文件为空或超过 10MB"}), 400
-
-    temp_dir = tempfile.mkdtemp(prefix="voice_stt_", dir=UPLOAD_FOLDER)
+        reason = f"音频文件为空或超过 {VOICE_VALIDATION.MAX_SIZE_MB}MB"
+        return None, None, None, (jsonify({"ok": False, "reason": reason}), 400)
+    temp_dir = tempfile.mkdtemp(prefix=prefix, dir=UPLOAD_FOLDER)
     source_path = os.path.join(temp_dir, f"source{ext}")
+    file.save(source_path)
+    validation = VOICE_VALIDATION.validate_file(source_path)
+    if not validation["ok"]:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return None, None, None, (jsonify(validation), 400)
+    return temp_dir, source_path, validation, None
+
+
+@app.route("/api/voices/analyze", methods=["POST"])
+def analyze_voice_reference():
+    """Return the recommended 3~15 second voice region for the editor."""
+    temp_dir, source_path, validation, error = _save_voice_request_file("voice_analyze_")
+    if error:
+        return error
+    try:
+        analysis = VOICE_VALIDATION.analyze_clone_ref(source_path)
+        if not analysis["ok"]:
+            return jsonify(analysis), 400
+        return jsonify({
+            "ok": True,
+            "source_duration_sec": validation["duration_sec"],
+            "recommended_start_sec": round(analysis["start_sec"], 2),
+            "recommended_duration_sec": round(analysis["duration_sec"], 2),
+        })
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@app.route("/api/voices/preview", methods=["POST"])
+def preview_voice_reference():
+    """Render the selected clip with optional light denoise for user audition."""
+    options, reason = _voice_clip_options(request.form)
+    if reason:
+        return jsonify({"ok": False, "reason": reason}), 400
+    temp_dir, source_path, _validation, error = _save_voice_request_file("voice_preview_")
+    if error:
+        return error
+    prepared_path = os.path.join(temp_dir, "preview.wav")
+    prepared = VOICE_VALIDATION.prepare_clone_ref(
+        source_path,
+        prepared_path,
+        clip_start=options["clip_start"],
+        clip_duration=options["clip_duration"],
+        denoise=options["denoise"],
+    )
+    if not prepared["ok"]:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return jsonify(prepared), 400
+    response = send_file(prepared_path, mimetype="audio/wav", as_attachment=False)
+    response.headers["X-Voice-Clip-Start"] = str(prepared["clip_start_sec"])
+    response.headers["X-Voice-Clip-Duration"] = str(prepared["duration_sec"])
+    response.headers["X-Voice-Denoised"] = "1" if prepared["denoised"] else "0"
+    response.call_on_close(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
+    return response
+
+
+@app.route("/api/voices/transcribe", methods=["POST"])
+def transcribe_voice_reference():
+    """Prepare the same reference clip used by cloning, then transcribe it locally."""
+    options, reason = _voice_clip_options(request.form)
+    if reason:
+        return jsonify({"ok": False, "reason": reason}), 400
+    temp_dir, source_path, _validation, error = _save_voice_request_file("voice_stt_")
+    if error:
+        return error
     prepared_path = os.path.join(temp_dir, "speaker.wav")
     try:
-        file.save(source_path)
-        validation = VOICE_VALIDATION.validate_file(source_path)
-        if not validation["ok"]:
-            return jsonify(validation), 400
-        prepared = VOICE_VALIDATION.prepare_clone_ref(source_path, prepared_path)
+        prepared = VOICE_VALIDATION.prepare_clone_ref(
+            source_path,
+            prepared_path,
+            clip_start=options["clip_start"],
+            clip_duration=options["clip_duration"],
+            denoise=options["denoise"],
+        )
         if not prepared["ok"]:
             return jsonify(prepared), 400
         recognized = transcribe_audio(prepared_path)
@@ -1738,6 +1832,7 @@ def create_voice():
     name = (request.form.get("name") or "").strip()
     ref_text = (request.form.get("ref_text") or "").strip()
     consent = (request.form.get("consent") or "").lower() in ("1", "true", "yes", "on")
+    clip_options, clip_reason = _voice_clip_options(request.form)
 
     if not file or not file.filename:
         return jsonify({"ok": False, "reason": "请选择参考音频"}), 400
@@ -1749,6 +1844,8 @@ def create_voice():
         return jsonify({"ok": False, "reason": "参考音频逐字稿不能超过 500 个字符"}), 400
     if not consent:
         return jsonify({"ok": False, "reason": "请确认已获得声音使用授权"}), 400
+    if clip_reason:
+        return jsonify({"ok": False, "reason": clip_reason}), 400
 
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in VOICE_VALIDATION.ALLOWED_EXT:
@@ -1783,7 +1880,13 @@ def create_voice():
             shutil.rmtree(voice_dir, ignore_errors=True)
             return jsonify(validation), 400
 
-        prepared = VOICE_VALIDATION.prepare_clone_ref(temp_path, wav_path)
+        prepared = VOICE_VALIDATION.prepare_clone_ref(
+            temp_path,
+            wav_path,
+            clip_start=clip_options["clip_start"],
+            clip_duration=clip_options["clip_duration"],
+            denoise=clip_options["denoise"],
+        )
         if not prepared["ok"]:
             shutil.rmtree(voice_dir, ignore_errors=True)
             return jsonify(prepared), 400
@@ -1830,6 +1933,7 @@ def create_voice():
                 "duration_sec": prepared["duration_sec"],
                 "clip_start_sec": prepared["clip_start_sec"],
                 "auto_trimmed": prepared["auto_trimmed"],
+                "denoised": prepared["denoised"],
             },
             "transcription": transcription,
         }), 201

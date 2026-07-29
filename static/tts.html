@@ -248,6 +248,15 @@
         .voice-file-meta.ready { color: var(--success); font-weight: 700; }
         .voice-audio-preview { display: none; width: 100%; height: 36px; margin-top: 8px; }
         .voice-audio-preview.active { display: block; }
+        .voice-clip-editor { margin-top: 10px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); }
+        .voice-waveform { display: block; width: 100%; height: 76px; border-radius: 7px; cursor: grab; touch-action: none; }
+        .voice-waveform.dragging { cursor: grabbing; }
+        .voice-waveform.resizing { cursor: ew-resize; }
+        .voice-clip-summary { margin-top: 7px; color: var(--accent-dark); font-size: 12px; font-weight: 800; }
+        .voice-clip-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+        .voice-clip-actions button { min-height: 35px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--text); cursor: pointer; font-weight: 700; }
+        .voice-denoise { display: flex; gap: 7px; align-items: flex-start; margin-top: 9px; color: var(--text); font-size: 12px; line-height: 1.4; }
+        .voice-processed-preview { width: 100%; height: 36px; margin-top: 8px; }
         .voice-train-fields { display: grid; gap: 10px; margin-top: 12px; }
         .voice-train-fields label > span { display: block; margin-bottom: 4px; color: var(--text); font-size: 12px; font-weight: 700; }
         .voice-train-fields textarea.text-input { min-height: 74px; }
@@ -255,6 +264,9 @@
         .voice-create-status { min-height: 18px; margin-top: 8px; color: var(--muted); font-size: 12px; }
         .voice-create-status.error { color: var(--danger); }
         .voice-create-status.success { color: var(--success); font-weight: 700; }
+        html[data-theme="dark"] .voice-clip-actions button {
+            background: var(--panel); border-color: var(--line); color: var(--text);
+        }
 
         /* 语速滑块 */
         .speed-row {
@@ -545,8 +557,8 @@
                     <div class="voice-create-body">
                         <div class="voice-guide" aria-label="录音要求">
                             <div class="voice-guide-row"><b>1</b><span>准备单人、无音乐、无明显回声的清晰录音。</span></div>
-                            <div class="voice-guide-row"><b>2</b><span>支持 WAV / MP3，时长 3–60 秒，最大 10MB。</span></div>
-                            <div class="voice-guide-row"><b>3</b><span>逐字稿可留空，系统会先在本机识别并自动填入。</span></div>
+                            <div class="voice-guide-row"><b>2</b><span>支持 WAV / MP3，时长 3–120 秒，最大 25MB；最终保留 3–15 秒。</span></div>
+                            <div class="voice-guide-row"><b>3</b><span>系统会推荐人声片段；可微调、轻度降噪并试听后创建。</span></div>
                         </div>
                         <form id="voiceCreateForm">
                             <input id="voiceFileInput" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" hidden>
@@ -556,6 +568,16 @@
                             </div>
                             <div class="voice-file-meta" id="voiceFileMeta">尚未选择文件</div>
                             <audio class="voice-audio-preview" id="voiceAudioPreview" controls preload="metadata"></audio>
+                            <div class="voice-clip-editor" id="voiceClipEditor" hidden>
+                                <canvas class="voice-waveform" id="voiceWaveform" role="slider" tabindex="0" aria-label="参考音频选区；拖动中间可移动，拖动左右边缘可调整时长；方向键移动，上下键调整时长" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas>
+                                <div class="voice-clip-summary" id="voiceClipSelection">等待分析</div>
+                                <label class="voice-denoise"><input id="voiceDenoiseInput" type="checkbox"><span>轻度降噪（适合底噪；明显背景音乐仍建议更换录音）</span></label>
+                                <div class="voice-clip-actions">
+                                    <button id="voicePlaySelectionBtn" type="button">试听原选区</button>
+                                    <button id="voiceProcessedPreviewBtn" type="button">试听处理后</button>
+                                </div>
+                                <audio class="voice-processed-preview" id="voiceProcessedPreview" controls hidden></audio>
+                            </div>
                             <div class="voice-train-fields">
                                 <label><span>音色名称</span><input class="text-input" id="voiceNameInput" maxlength="30" placeholder="例如：讲解员小林" autocomplete="off"></label>
                                 <label><span>录音逐字稿（选填）</span><textarea class="text-input" id="voiceRefTextInput" maxlength="500" placeholder="留空将自动识别；手动填写通常更准确"></textarea></label>
@@ -653,6 +675,7 @@
         </section>
     </main>
 
+    <script src="/voice_clip_editor.js"></script>
     <script>
         (function () {
             const key = 'toolbox-color-theme';
@@ -740,6 +763,13 @@
             const voiceConsentInput = $('voiceConsentInput');
             const voiceCreateBtn = $('voiceCreateBtn');
             const voiceCreateStatus = $('voiceCreateStatus');
+            const voiceClipEditorPanel = $('voiceClipEditor');
+            const voiceWaveform = $('voiceWaveform');
+            const voiceClipSelection = $('voiceClipSelection');
+            const voiceDenoiseInput = $('voiceDenoiseInput');
+            const voicePlaySelectionBtn = $('voicePlaySelectionBtn');
+            const voiceProcessedPreviewBtn = $('voiceProcessedPreviewBtn');
+            const voiceProcessedPreview = $('voiceProcessedPreview');
             const TTS_VOICE_VOLUME_KEY = 'toolbox_tts_voice_volume';
 
             // ===== Utils =====
@@ -989,6 +1019,19 @@
                 voiceCreateStatus.className = `voice-create-status${type ? ` ${type}` : ''}`;
             }
 
+            const voiceClipEditor = new VoiceClipEditor({
+                fetcher: (path, options) => fetch(`${API_BASE}${path}`, options),
+                sourceAudio: voiceAudioPreview,
+                panel: voiceClipEditorPanel,
+                canvas: voiceWaveform,
+                selectionLabel: voiceClipSelection,
+                denoiseInput: voiceDenoiseInput,
+                playSelectionBtn: voicePlaySelectionBtn,
+                previewBtn: voiceProcessedPreviewBtn,
+                processedAudio: voiceProcessedPreview,
+                setStatus: setVoiceCreateStatus,
+            });
+
             function clearVoicePreview() {
                 state.selectedVoiceFile = null;
                 if (state.selectedVoiceFileUrl) URL.revokeObjectURL(state.selectedVoiceFileUrl);
@@ -1001,6 +1044,7 @@
                 voiceFileInput.value = '';
                 voiceFileMeta.className = 'voice-file-meta';
                 voiceFileMeta.textContent = '尚未选择文件';
+                voiceClipEditor.reset();
             }
 
             function acceptVoiceFile(file) {
@@ -1011,9 +1055,9 @@
                     setVoiceCreateStatus('格式不支持，请选择 WAV 或 MP3 文件。', 'error');
                     return;
                 }
-                if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+                if (file.size <= 0 || file.size > 25 * 1024 * 1024) {
                     clearVoicePreview();
-                    setVoiceCreateStatus(file.size <= 0 ? '音频文件为空。' : '文件超过 10MB。', 'error');
+                    setVoiceCreateStatus(file.size <= 0 ? '音频文件为空。' : '文件超过 25MB。', 'error');
                     return;
                 }
                 clearVoicePreview();
@@ -1025,8 +1069,8 @@
                 setVoiceCreateStatus('');
                 voiceAudioPreview.onloadedmetadata = () => {
                     const duration = Number(voiceAudioPreview.duration || 0);
-                    if (!Number.isFinite(duration) || duration < 3 || duration > 60) {
-                        const reason = duration < 3 ? '录音不足 3 秒。' : '录音超过 60 秒，请先缩短。';
+                    if (!Number.isFinite(duration) || duration < 3 || duration > 120) {
+                        const reason = duration < 3 ? '录音不足 3 秒。' : '录音超过 120 秒，请先缩短。';
                         clearVoicePreview();
                         setVoiceCreateStatus(reason, 'error');
                         return;
@@ -1034,7 +1078,7 @@
                     voiceFileMeta.className = 'voice-file-meta ready';
                     voiceFileMeta.textContent = `${file.name} · ${duration.toFixed(1)} 秒 · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
                     if (!voiceNameInput.value.trim()) voiceNameInput.value = file.name.replace(/\.[^.]+$/, '').slice(0, 30);
-                    setVoiceCreateStatus(duration > 15 ? '创建时将自动选取最清晰的 15 秒。' : '音频符合要求，可以创建。');
+                    voiceClipEditor.load(file, duration);
                 };
                 voiceAudioPreview.onerror = () => {
                     clearVoicePreview();
@@ -1076,6 +1120,7 @@
                         setVoiceCreateStatus('未填写逐字稿，正在本机识别参考音频…');
                         const transcriptForm = new FormData();
                         transcriptForm.append('file', state.selectedVoiceFile, state.selectedVoiceFile.name);
+                        voiceClipEditor.appendTo(transcriptForm);
                         const transcriptResponse = await fetch(`${API_BASE}/voices/transcribe`, { method: 'POST', body: transcriptForm });
                         const transcriptData = await safeReadJson(transcriptResponse);
                         if (!transcriptResponse.ok || !transcriptData.ok) {
@@ -1092,6 +1137,7 @@
                     form.append('name', name);
                     form.append('ref_text', refText);
                     form.append('consent', 'true');
+                    voiceClipEditor.appendTo(form);
                     voiceCreateBtn.textContent = '正在分析并创建…';
                     setVoiceCreateStatus(autoTranscript ? '逐字稿已应用，正在创建音色…' : '正在检测人声并准备标准参考片段…');
                     const res = await fetch(`${API_BASE}/voices/create`, { method: 'POST', body: form });
