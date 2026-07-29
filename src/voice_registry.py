@@ -282,9 +282,9 @@ class VoiceRegistry:
 class Validation:
     """上传参考音频的二次校验与预处理。"""
 
-    MAX_SIZE_MB = 10
+    MAX_SIZE_MB = 25
     MIN_DURATION_SEC = 3
-    MAX_DURATION_SEC = 60
+    MAX_DURATION_SEC = 120
     MAX_USABLE_DURATION_SEC = 15
     ALLOWED_EXT = (".wav", ".mp3")
 
@@ -365,12 +365,30 @@ class Validation:
         except Exception:
             return False
 
-    def prepare_clone_ref(self, in_path: str, out_path: str) -> dict:
+    def analyze_clone_ref(self, in_path: str) -> dict:
+        """分析原始音频并返回自动推荐的人声片段，不保留中间文件。"""
+        normalized = os.path.abspath(in_path) + ".analysis.tmp.wav"
+        try:
+            if not self.preprocess_ref(in_path, normalized):
+                return {"ok": False, "reason": "音频预处理失败，请确认文件未损坏"}
+            return self._select_voice_segment(normalized)
+        except Exception:
+            return {"ok": False, "reason": "无法分析音频中的有效人声"}
+        finally:
+            try:
+                os.remove(normalized)
+            except OSError:
+                pass
+
+    def prepare_clone_ref(self, in_path: str, out_path: str, clip_start: float = None,
+                          clip_duration: float = None, denoise: bool = False) -> dict:
         """生成适合 CosyVoice3 的参考音频，并自动选择有效人声片段。
 
         输入先统一转换为 22050Hz / 单声道 / 16-bit WAV，再按 250ms 窗口
         计算能量。短音频去掉首尾静音；长音频选择能量和人声占比最高的
-        15 秒窗口，避免机械截取开头时选中片头音乐或长静音。
+        15 秒窗口，避免机械截取开头时选中片头音乐或长静音。传入
+        ``clip_start`` / ``clip_duration`` 时使用用户确认的 3~15 秒选区。
+        ``denoise`` 启用 FFmpeg 的轻度频域降噪，不做破坏性人声分离。
         """
         out_dir = os.path.dirname(os.path.abspath(out_path))
         os.makedirs(out_dir, exist_ok=True)
@@ -378,16 +396,43 @@ class Validation:
         try:
             if not self.preprocess_ref(in_path, normalized):
                 return {"ok": False, "reason": "音频预处理失败，请确认文件未损坏"}
-            segment = self._select_voice_segment(normalized)
-            if not segment["ok"]:
-                return segment
+            source_duration = self.get_duration(normalized) or 0.0
+            manual_clip = clip_start is not None or clip_duration is not None
+            if manual_clip:
+                try:
+                    start_sec = float(clip_start or 0.0)
+                    duration_sec = float(clip_duration)
+                except (TypeError, ValueError):
+                    return {"ok": False, "reason": "裁剪参数无效"}
+                if start_sec < 0:
+                    return {"ok": False, "reason": "裁剪起点不能小于 0 秒"}
+                if not self.MIN_DURATION_SEC <= duration_sec <= self.MAX_USABLE_DURATION_SEC:
+                    return {
+                        "ok": False,
+                        "reason": f"最终片段需为 {self.MIN_DURATION_SEC}~{self.MAX_USABLE_DURATION_SEC} 秒",
+                    }
+                if start_sec + duration_sec > source_duration + 0.05:
+                    return {"ok": False, "reason": "裁剪选区超出了原音频范围"}
+                segment = {
+                    "ok": True,
+                    "start_sec": start_sec,
+                    "duration_sec": min(duration_sec, source_duration - start_sec),
+                    "source_duration_sec": round(source_duration, 2),
+                }
+            else:
+                segment = self._select_voice_segment(normalized)
+                if not segment["ok"]:
+                    return segment
 
             ffmpeg = self._tool("ffmpeg")
             cmd = [
                 ffmpeg, "-y", "-ss", f"{segment['start_sec']:.3f}",
                 "-i", normalized, "-t", f"{segment['duration_sec']:.3f}",
-                "-ac", "1", "-ar", "22050", "-sample_fmt", "s16", out_path,
+                "-ac", "1", "-ar", "22050", "-sample_fmt", "s16",
             ]
+            if denoise:
+                cmd += ["-af", "afftdn=nf=-25"]
+            cmd.append(out_path)
             res = subprocess.run(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, timeout=120,
@@ -397,14 +442,20 @@ class Validation:
             final_duration = self.get_duration(out_path) or 0.0
             if final_duration < self.MIN_DURATION_SEC:
                 return {"ok": False, "reason": "可用人声不足 3 秒，请上传更清晰、连续的录音"}
+            selected_voice = self._select_voice_segment(out_path)
+            if not selected_voice["ok"]:
+                return selected_voice
             return {
                 "ok": True,
                 "duration_sec": round(final_duration, 2),
                 "source_duration_sec": segment["source_duration_sec"],
                 "clip_start_sec": round(segment["start_sec"], 2),
+                "denoised": bool(denoise),
                 "auto_trimmed": (
-                    segment["start_sec"] > 0.05
-                    or final_duration < segment["source_duration_sec"] - 0.05
+                    not manual_clip and (
+                        segment["start_sec"] > 0.05
+                        or final_duration < segment["source_duration_sec"] - 0.05
+                    )
                 ),
             }
         except Exception:
