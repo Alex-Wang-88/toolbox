@@ -61,6 +61,29 @@ def _cross_process_lock(path):
 # - cosyvoice3         : CosyVoice 3 零样本克隆（独立 venv 常驻 Worker，需 ref_text，复用 venv_cosyvoice）
 ALLOWED_VOICE_TYPES = {"cloud_parallel", "cosyvoice3"}
 
+# CosyVoice3 的零样本克隆 / 跨语言生成覆盖范围。``auto`` 只用于参考音频
+# 语言标记和 Faster-Whisper 的自动识别，不会作为模型语言标签传入推理。
+COSYVOICE_LANGUAGE_OPTIONS = (
+    ("auto", "自动识别"),
+    ("zh", "中文"),
+    ("en", "英语"),
+    ("ja", "日语"),
+    ("ko", "韩语"),
+    ("de", "德语"),
+    ("es", "西班牙语"),
+    ("fr", "法语"),
+    ("it", "意大利语"),
+    ("ru", "俄语"),
+)
+COSYVOICE_LANGUAGE_CODES = frozenset(code for code, _label in COSYVOICE_LANGUAGE_OPTIONS)
+COSYVOICE_LANGUAGE_LABELS = dict(COSYVOICE_LANGUAGE_OPTIONS)
+
+
+def normalize_voice_language(value, default="auto"):
+    """Return a supported language code, or ``None`` for invalid input."""
+    code = str(value or default).strip().lower()
+    return code if code in COSYVOICE_LANGUAGE_CODES else None
+
 
 def _now_iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

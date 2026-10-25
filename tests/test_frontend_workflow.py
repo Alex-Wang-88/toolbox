@@ -79,6 +79,9 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertIn("正在生成配音", self.html)
         self.assertIn("/voices/transcribe", self.html)
         self.assertIn("录音逐字稿（选填）", self.html)
+        self.assertIn('id="voiceLanguageInput"', self.html)
+        for language in ("auto", "zh", "en", "ja", "ko", "de", "es", "fr", "it", "ru"):
+            self.assertIn(f'value="{language}"', self.html)
         self.assertIn("status.indeterminate", self.html)
         self.assertIn("async: true", self.html)
 
@@ -129,12 +132,14 @@ class TtsFrontendTests(unittest.TestCase):
     def test_tts_page_can_create_cloned_voice(self):
         for control_id in (
             "voiceCreateForm", "voiceFileInput", "voiceDrop", "voiceNameInput",
-            "voiceRefTextInput", "voiceConsentInput", "voiceCreateBtn",
+            "voiceLanguageInput", "voiceRefTextInput", "voiceConsentInput", "voiceCreateBtn",
         ):
             self.assertIn(f'id="{control_id}"', self.html)
         self.assertIn("/voices/create", self.html)
         self.assertIn("/voices/transcribe", self.html)
         self.assertIn("录音逐字稿（选填）", self.html)
+        for language in ("auto", "zh", "en", "ja", "ko", "de", "es", "fr", "it", "ru"):
+            self.assertIn(f'value="{language}"', self.html)
         self.assertIn("waitForQuickTask", self.html)
         self.assertIn("async: true", self.html)
         for control_id in (
@@ -275,7 +280,7 @@ class GenerateResolutionTests(unittest.TestCase):
         import web_server
 
         client = web_server.app.test_client()
-        for route in ("/", "/materials", "/manuscript", "/generate"):
+        for route in ("/", "/materials", "/manuscript", "/generate", "/singing"):
             with self.subTest(route=route):
                 response = client.get(route)
                 try:

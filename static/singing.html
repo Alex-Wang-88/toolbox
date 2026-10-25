@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 唱歌 - 音视频工具</title>
+    <script>
+        (function () {
+            const key = 'toolbox-color-theme';
+            let saved = null;
+            try { saved = localStorage.getItem(key); } catch (e) {}
+            const preferred = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.dataset.theme = saved === 'dark' || saved === 'light' ? saved : preferred;
+        }());
+    </script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #f5f7fb;
+            --panel: #ffffff;
+            --soft: #f2f4f8;
+            --line: #e2e7ef;
+            --text: #1b2436;
+            --muted: #5a6477;
+            --accent: #2b5cff;
+            --accent-dark: #1e47d6;
+            --accent-soft: #eaf1ff;
+            --accent-rgb: 43, 92, 255;
+            --focus-ring: rgba(43, 92, 255, .18);
+            --on-accent: #ffffff;
+            --cta: #2b5cff;
+            --cta-hover: #1e47d6;
+            --on-cta: #ffffff;
+            --success: #16a34a;
+            --success-soft: #ecfdf3;
+            --warning: #b45309;
+            --warning-soft: #fff7e8;
+            --danger: #dc2626;
+            --danger-soft: #fff1f2;
+            --shadow-sm: 0 1px 2px rgba(15, 20, 25, .04);
+            --shadow: 0 4px 14px rgba(15, 20, 25, .06);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --radius-pill: 999px;
+            --brand-warm: #f97316;
+        }
+        html[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #090e1a;
+            --panel: #111827;
+            --soft: #182235;
+            --line: #28364d;
+            --text: #edf2ff;
+            --muted: #9ba9bf;
+            --accent: #7c9cff;
+            --accent-dark: #a9bcff;
+            --accent-soft: #1a2948;
+            --accent-rgb: 124, 156, 255;
+            --focus-ring: rgba(124, 156, 255, .28);
+            --on-accent: #081225;
+            --cta: #7c9cff;
+            --cta-hover: #a9bcff;
+            --on-cta: #081225;
+            --success: #4ade80;
+            --success-soft: #123322;
+            --warning: #fbbf24;
+            --warning-soft: #3a2a12;
+            --danger: #fb7185;
+            --danger-soft: #351a22;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, .18);
+            --shadow: 0 4px 14px rgba(0, 0, 0, .18);
+            --brand-warm: #fb923c;
+        }
+        html { color-scheme: light; }
+        body {
+            min-height: 100vh;
+            padding: clamp(16px, 2vw, 28px);
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Source Han Sans CN", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+            line-height: 1.6;
+            letter-spacing: .01em;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+        body::before {
+            display: none;
+        }
+        button, input, select { font: inherit; }
+        a { color: var(--accent-dark); }
+        .app { max-width: 980px; margin: 0 auto; }
+        .mainnav {
+            position: sticky;
+            top: 12px;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 60px;
+            margin-bottom: 20px;
+            padding: 8px 12px 8px 16px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: var(--shadow-sm);
+        }
+        html[data-theme="dark"] .mainnav { background: var(--panel); }
+        .nav-brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text);
+            font-size: 15px;
+            font-weight: 800;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .nav-brand::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            flex: 0 0 auto;
+            border-radius: 3px;
+            background: var(--accent);
+            box-shadow: 5px 5px 0 var(--brand-warm);
+        }
+        .nav-links { display: flex; gap: 4px; padding: 3px; background: var(--soft); border: 1px solid var(--line); border-radius: var(--radius-pill); }
+        .nav-link {
+            display: inline-flex;
+            align-items: center;
+            min-height: 38px;
+            padding: 7px 14px;
+            border-radius: var(--radius-pill);
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+            text-decoration: none;
+            white-space: nowrap;
+            transition: color .18s ease, background .18s ease, box-shadow .18s ease;
+        }
+        .nav-link:hover { color: var(--text); }
+        .nav-link.active { background: var(--panel); color: var(--accent-dark); box-shadow: var(--shadow-sm); }
+        .settings-toggle {
+            position: relative;
+            flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            min-width: 76px;
+            min-height: 44px;
+            padding: 0 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--soft);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 800;
+            transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+        }
+        .settings-toggle:hover { border-color: var(--accent); background: var(--panel); color: var(--accent-dark); transform: translateY(-1px); box-shadow: 0 2px 6px rgba(var(--accent-rgb), .12); }
+        .settings-toggle:active { transform: translateY(0) scale(.98); }
+        .settings-toggle[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+        .settings-toggle svg { width: 18px; height: 18px; flex: 0 0 auto; }
+        .settings-popover {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            z-index: 60;
+            width: min(348px, calc(100vw - 32px));
+            padding: 16px;
+            border: 1px solid var(--line);
+            border-radius: 11px;
+            background: var(--panel);
+            box-shadow: 0 14px 34px rgba(15, 20, 25, .16);
+        }
+        html[data-theme="dark"] .settings-popover { box-shadow: 0 16px 38px rgba(0, 0, 0, .38); }
+        .settings-popover[hidden] { display: none; }
+        .settings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+        .settings-title { color: var(--text); font-size: 15px; font-weight: 800; }
+        .settings-subtitle { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+        .settings-close { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); color: var(--muted); cursor: pointer; transition: background .18s ease, border-color .18s ease, color .18s ease; }
+        .settings-close:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+        .settings-close svg { width: 17px; height: 17px; }
+        .settings-section { padding-top: 15px; }
+        .settings-section + .settings-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--line); }
+        .settings-section-title { margin-bottom: 10px; color: var(--text); font-size: 12px; font-weight: 800; }
+        .color-picker-row { display: grid; gap: 13px; }
+        .color-wheel-button { position: relative; display: block; width: min(100%, 238px); aspect-ratio: 1; justify-self: center; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+        .color-wheel-button:hover { transform: none; box-shadow: none; }
+        .color-wheel-button.is-dragging { cursor: grabbing; }
+        .color-wheel-button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 6px; }
+        .color-wheel-spectrum { position: absolute; inset: 0; display: block; overflow: hidden; border: 1px solid rgba(15, 20, 25, .18); border-radius: 50%; background: conic-gradient(from 0deg at 50% 50%, #ff0000, #ff7a00, #ffff00, #23e000, #00d8c8, #008cff, #4f00ff, #b900ff, #ff00a8, #ff0000); box-shadow: 0 8px 18px rgba(15, 20, 25, .16); }
+        .color-wheel-spectrum::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at center, #ffffff 0%, rgba(255,255,255,.94) 16%, rgba(255,255,255,.56) 42%, rgba(255,255,255,0) 74%); }
+        .color-wheel-center { position: absolute; z-index: 2; width: 24px; height: 24px; left: 50%; top: 50%; border: 2px solid var(--panel); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px rgba(15,20,25,.48), 0 2px 6px rgba(15,20,25,.3); pointer-events: none; transform: translate(-50%, -50%); transition: background .08s ease; }
+        .color-picker-copy { min-width: 0; text-align: center; }
+        .color-picker-copy strong { display: block; color: var(--text); font-size: 13px; }
+        .color-picker-copy p { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+        .color-picker-value { display: inline-block; margin-top: 7px; padding: 3px 7px; border-radius: 6px; background: var(--soft); color: var(--muted); font: 700 11px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+        .theme-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 13px; }
+        .theme-swatch { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 0 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; transition: border-color .18s ease, background .18s ease, color .18s ease; }
+        .theme-swatch:hover, .theme-swatch[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+        .theme-swatch-dot { width: 12px; height: 12px; flex: 0 0 auto; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+        .theme-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .theme-mode-option { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 700; transition: border-color .18s ease, background .18s ease, color .18s ease; }
+        .theme-mode-option:hover { border-color: var(--accent); }
+        .theme-mode-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); box-shadow: inset 3px 0 0 var(--accent); }
+        .theme-mode-option input { width: 16px; height: 16px; accent-color: var(--accent); }
+        .settings-note { margin-top: 12px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+        :is(button, a, input, select, summary, [role="button"]):focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+
+        .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+        h1 { font-size: clamp(24px, 2.6vw, 32px); line-height: 1.2; letter-spacing: -.02em; font-weight: 800; }
+        h1::before { display: none; }
+        .hero p { max-width: 680px; margin-top: 8px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+        .engine-badge { flex: 0 0 auto; padding: 8px 13px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--soft); color: var(--muted); font-size: 12px; font-weight: 800; }
+        .engine-badge.ready { border-color: rgba(var(--accent-rgb), .35); background: var(--accent-soft); color: var(--accent-dark); }
+        .engine-badge.error { border-color: rgba(180, 35, 24, .25); background: var(--danger-soft); color: var(--danger); }
+
+        .notice { margin-bottom: 16px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); color: var(--muted); font-size: 13px; line-height: 1.55; }
+        .notice strong { display: block; margin-bottom: 3px; color: var(--text); }
+        .notice.error { border-color: rgba(180, 35, 24, .28); background: var(--danger-soft); color: var(--danger); }
+        .notice.error strong { color: var(--danger); }
+        .notice[hidden] { display: none; }
+        .notice a { font-weight: 800; }
+        .setup-list { display: grid; gap: 4px; margin: 8px 0 0 18px; }
+
+        .workspace { display: grid; grid-template-columns: minmax(260px, .85fr) minmax(0, 1.15fr); gap: 16px; align-items: start; }
+        .panel { overflow: hidden; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); }
+        .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+        .panel-title { font-size: 16px; font-weight: 800; letter-spacing: -.01em; }
+        .panel-subtitle { margin-top: 4px; color: var(--muted); font-size: 12px; }
+        .panel-count { padding: 5px 9px; border-radius: var(--radius-pill); background: var(--soft); color: var(--muted); font-size: 12px; white-space: nowrap; }
+        .panel-body { padding: 18px; }
+        .field-label { display: block; margin-bottom: 9px; color: var(--text); font-size: 13px; font-weight: 800; }
+        .hint { margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+        .mode-fieldset { margin-bottom: 20px; }
+        .mode-options { display: grid; gap: 9px; }
+        .mode-option {
+            display: grid;
+            grid-template-columns: 20px minmax(0, 1fr) auto;
+            gap: 11px;
+            align-items: center;
+            min-height: 66px;
+            padding: 11px 13px;
+            border: 1px solid var(--line);
+            border-radius: 11px;
+            background: var(--panel);
+            cursor: pointer;
+            transition: border-color .18s ease, background .18s ease, transform .18s ease;
+        }
+        .mode-option:hover:not(.unavailable) { border-color: var(--accent); transform: translateY(-1px); }
+        .mode-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+        .mode-option.unavailable, .mode-option:has(input:disabled) { cursor: not-allowed; opacity: .55; }
+        .mode-option input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+        .mode-option strong { display: block; font-size: 13px; }
+        .mode-option small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+        .mode-option em { padding: 4px 7px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-dark); font-size: 10px; font-style: normal; font-weight: 800; white-space: nowrap; }
+        .mode-option.unavailable em { background: var(--soft); color: var(--muted); }
+        .voice-list { display: grid; gap: 9px; }
+        .voice-option {
+            display: grid;
+            grid-template-columns: 20px minmax(0, 1fr);
+            gap: 11px;
+            align-items: start;
+            min-height: 64px;
+            padding: 12px 13px;
+            border: 1px solid var(--line);
+            border-radius: 11px;
+            background: var(--panel);
+            cursor: pointer;
+            transition: border-color .18s ease, background .18s ease, transform .18s ease;
+        }
+        .voice-option:hover { border-color: var(--accent); transform: translateY(-1px); }
+        .voice-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+        .voice-option:has(input:disabled) { cursor: not-allowed; opacity: .56; }
+        .voice-option input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); }
+        .voice-option strong { display: block; overflow-wrap: anywhere; font-size: 13px; }
+        .voice-option small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+        .empty { padding: 13px; border: 1px dashed var(--line); border-radius: 11px; color: var(--muted); font-size: 12px; }
+
+        .dropzone { display: block; min-height: 188px; padding: 32px 20px; border: 1.5px dashed var(--line); border-radius: 8px; background: var(--soft); color: var(--muted); text-align: center; cursor: pointer; transition: border-color .18s ease, background .18s ease, box-shadow .18s ease; }
+        .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 4px var(--focus-ring); }
+        .drop-icon { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 auto 12px; border: 1px solid rgba(var(--accent-rgb), .3); border-radius: 8px; background: var(--panel); color: var(--accent-dark); }
+        .drop-icon svg { width: 24px; height: 24px; }
+        .dropzone strong { display: block; color: var(--text); font-size: 15px; }
+        .dropzone span { display: block; margin-top: 5px; font-size: 12px; }
+        .file-meta { min-height: 21px; margin-top: 8px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+        .file-meta.ready { color: var(--success); font-weight: 800; }
+        .source-preview { display: none; width: 100%; height: 40px; margin-top: 8px; }
+        .source-preview.active { display: block; }
+
+        fieldset { min-width: 0; border: 0; }
+        .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 19px; }
+        .control { min-width: 0; }
+        .song-name-control { margin-top: 19px; }
+        input.text-input {
+            width: 100%; min-height: 44px; padding: 9px 11px; border: 1px solid var(--line);
+            border-radius: 10px; background: var(--panel); color: var(--text); outline: none;
+            transition: border-color .18s ease, box-shadow .18s ease;
+        }
+        input.text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+        .range-row { display: flex; align-items: center; gap: 10px; }
+        .range-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+        .range-value { min-width: 52px; color: var(--accent-dark); font-size: 13px; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+        select { width: 100%; min-height: 44px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); }
+        .consent { display: flex; align-items: flex-start; gap: 9px; margin-top: 18px; color: var(--muted); font-size: 12px; }
+        .consent input { width: 18px; height: 18px; flex: 0 0 auto; margin-top: 1px; accent-color: var(--accent); }
+        .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+        button.primary, button.secondary, .download-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border-radius: 8px; font-weight: 800; cursor: pointer; text-decoration: none; transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease; }
+        button.primary { border: 1px solid var(--cta); background: var(--cta); color: var(--on-cta); box-shadow: none; }
+        button.primary:hover:not(:disabled) { border-color: var(--cta-hover); background: var(--cta-hover); transform: none; }
+        button.secondary, .download-link.secondary { border: 1px solid var(--line); background: var(--soft); color: var(--text); }
+        button.secondary:hover:not(:disabled), .download-link.secondary:hover { border-color: var(--accent); background: var(--panel); color: var(--accent-dark); }
+        button:disabled { cursor: not-allowed; opacity: .48; box-shadow: none; transform: none; }
+        .error-box, .success-box { display: none; margin-top: 14px; padding: 12px 14px; border-radius: 10px; font-size: 13px; }
+        .error-box { background: var(--danger-soft); color: var(--danger); }
+        .success-box { background: var(--success-soft); color: var(--success); }
+        .error-box.active, .success-box.active { display: block; }
+
+        .progress-card { display: none; margin-top: 16px; padding: 15px; border: 1px solid var(--line); border-radius: 11px; background: var(--soft); }
+        .progress-card.active { display: block; }
+        .progress-top { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; }
+        .spinner {
+            display: none;
+            width: 24px;
+            height: 24px;
+            flex: 0 0 auto;
+            border: 3px solid var(--line);
+            border-top-color: var(--accent);
+            border-right-color: rgba(var(--accent-rgb), .34);
+            border-radius: 50%;
+            animation: singing-spinner .72s linear infinite;
+            transform-origin: 50% 50%;
+            will-change: transform;
+        }
+        .spinner.active { display: inline-block; }
+        @keyframes singing-spinner { to { transform: rotate(360deg); } }
+        .progress-title { font-size: 13px; font-weight: 800; }
+        .progress-sub { margin-top: 2px; color: var(--muted); font-size: 12px; }
+        .bar { height: 8px; overflow: hidden; margin-bottom: 8px; border-radius: 4px; background: var(--line); }
+        .bar-fill { width: 0; height: 100%; background: var(--accent); transition: width .25s ease; }
+        .progress-card.indeterminate .bar-fill {
+            background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent) 34%, var(--accent-dark) 50%, var(--accent) 66%, var(--accent) 100%);
+            background-size: 220% 100%;
+            animation: progress-flow 1.15s linear infinite;
+        }
+        @keyframes progress-flow { from { background-position: 100% 0; } to { background-position: -120% 0; } }
+        .progress-message { color: var(--muted); font-size: 12px; }
+        .result { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+        .result.active { display: block; }
+        .result audio { width: 100%; margin-top: 8px; }
+        .result-meta { margin-top: 8px; color: var(--muted); font-size: 12px; }
+        .download-link { margin-top: 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); }
+        .download-link:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+        .history-panel { margin-top: 0; }
+        .history-list { display: grid; gap: 9px; }
+        .history-item { padding: 12px 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--soft); }
+        .history-line { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 11px; }
+        .history-source { margin: 5px 0 7px; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+        .history-item audio { width: 100%; height: 36px; }
+        @media (max-width: 820px) {
+            .workspace { grid-template-columns: 1fr; }
+            .workspace > .panel:first-child { margin-bottom: 0; }
+        }
+        @media (max-width: 650px) {
+            body { padding: 14px; }
+            .mainnav { top: 8px; margin-bottom: 22px; padding: 10px 12px; flex-wrap: wrap; }
+            .nav-links { order: 3; width: 100%; justify-content: center; overflow-x: auto; border-radius: 11px; }
+            .nav-link { flex: 1 0 auto; justify-content: center; padding-inline: 11px; }
+            .settings-toggle { margin-left: auto; }
+            .settings-popover {
+                position: fixed;
+                top: 72px;
+                right: 14px;
+                left: 14px;
+                width: auto;
+                max-height: calc(100vh - 86px);
+                overflow: auto;
+            }
+            .hero { align-items: flex-start; flex-direction: column; gap: 12px; }
+            .engine-badge { align-self: flex-start; }
+            .panel-head, .panel-body { padding: 16px; }
+            .control-grid { grid-template-columns: 1fr; gap: 13px; }
+            .actions { display: grid; grid-template-columns: 1fr 1fr; }
+            .actions > * { min-width: 0; padding-inline: 10px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+            /* The spinner is essential progress feedback; keep it slow and continuous. */
+            .spinner { animation: singing-spinner 1.2s linear infinite !important; }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <nav class="mainnav" aria-label="主导航">
+            <a class="nav-brand" href="/">音视频工具</a>
+            <div class="nav-links">
+                <a class="nav-link" href="/">图片视频生成</a>
+                <a class="nav-link" href="/tts">TTS 语音合成</a>
+                <a class="nav-link active" href="/singing" aria-current="page">AI 唱歌</a>
+                <a class="nav-link" href="/audio-converter">音频转换</a>
+            </div>
+            <button class="settings-toggle" id="settingsToggle" type="button" aria-label="打开界面设置" aria-expanded="false" aria-controls="settingsPanel" title="界面设置">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/><path d="m19.4 15 .1.1a1.9 1.9 0 0 1-2.7 2.7l-.1-.1a1.9 1.9 0 0 0-3.2 1.3v.2a1.9 1.9 0 0 1-3.8 0V19a1.9 1.9 0 0 0-3.2-1.3l-.1.1a1.9 1.9 0 0 1-2.7-2.7l.1-.1A1.9 1.9 0 0 0 2.5 12a1.9 1.9 0 0 0 1.3-3.2l-.1-.1a1.9 1.9 0 0 1 2.7-2.7l.1.1A1.9 1.9 0 0 0 9.7 4.8v-.2a1.9 1.9 0 0 1 3.8 0v.2a1.9 1.9 0 0 0 3.2 1.3l.1-.1a1.9 1.9 0 0 1 2.7 2.7l-.1.1A1.9 1.9 0 0 0 20.7 12a1.9 1.9 0 0 0-1.3 3Z"/></svg>
+                <span>设置</span>
+            </button>
+            <section class="settings-popover" id="settingsPanel" role="dialog" aria-modal="false" aria-labelledby="settingsTitle" hidden>
+                <div class="settings-head">
+                    <div>
+                        <div class="settings-title" id="settingsTitle">界面设置</div>
+                        <div class="settings-subtitle">调整当前页面的颜色与明暗风格</div>
+                    </div>
+                    <button class="settings-close" id="settingsClose" type="button" aria-label="关闭界面设置" title="关闭">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+                    </button>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title">主题颜色</div>
+                    <div class="color-picker-row">
+                        <button class="color-wheel-button" id="colorWheelButton" type="button" aria-label="主题颜色调色盘，可点击或拖动选择颜色，方向键可微调">
+                            <span class="color-wheel-spectrum" aria-hidden="true"></span>
+                            <span class="color-wheel-center" id="colorWheelCenter" aria-hidden="true"></span>
+                        </button>
+                        <div class="color-picker-copy">
+                            <strong>调色圆盘</strong>
+                            <p>点击或拖动圆盘选择主色，方向键也可以微调；按钮、链接和状态强调色会同步更新。</p>
+                            <output class="color-picker-value" id="themeColorValue">#2B5CFF</output>
+                        </div>
+                    </div>
+                    <div class="theme-presets" role="group" aria-label="预设主题颜色">
+                        <button class="theme-swatch" type="button" data-theme-color="#2b5cff" aria-label="蓝色主题" aria-pressed="true"><span class="theme-swatch-dot" style="--swatch:#2b5cff"></span>蓝色</button>
+                        <button class="theme-swatch" type="button" data-theme-color="#7c3aed" aria-label="紫色主题" aria-pressed="false"><span class="theme-swatch-dot" style="--swatch:#7c3aed"></span>紫色</button>
+                        <button class="theme-swatch" type="button" data-theme-color="#0d9488" aria-label="青色主题" aria-pressed="false"><span class="theme-swatch-dot" style="--swatch:#0d9488"></span>青色</button>
+                        <button class="theme-swatch" type="button" data-theme-color="#ea580c" aria-label="橙色主题" aria-pressed="false"><span class="theme-swatch-dot" style="--swatch:#ea580c"></span>橙色</button>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title">界面明暗</div>
+                    <div class="theme-mode-options" role="radiogroup" aria-label="界面明暗模式">
+                        <label class="theme-mode-option"><input type="radio" name="themeMode" value="light"><span>浅色模式</span></label>
+                        <label class="theme-mode-option"><input type="radio" name="themeMode" value="dark"><span>深色模式</span></label>
+                    </div>
+                    <div class="settings-note">设置会保存在当前浏览器，下次打开页面仍会使用。</div>
+                </div>
+            </section>
+        </nav>
+
+        <header class="hero">
+            <div>
+                <h1>AI 唱歌</h1>
+            <p>上传完整原曲或已分离的人声，保留旋律、节奏和唱法，再转换成你已创建的本地克隆音色。</p>
+            </div>
+            <div class="engine-badge" id="engineBadge" role="status" aria-live="polite">正在检查引擎…</div>
+        </header>
+
+        <section class="notice" id="engineNotice" aria-live="polite">
+            <strong id="engineNoticeTitle">正在检查歌声转换引擎</strong>
+            <span id="engineNoticeText">请稍候…</span>
+        </section>
+
+        <div class="workspace">
+            <section class="panel">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">选择目标音色</div>
+                        <div class="panel-subtitle">歌声转换使用该音色的本地参考音频</div>
+                    </div>
+                    <div class="panel-count" id="voiceCount">加载中…</div>
+                </div>
+                <div class="panel-body">
+                    <div class="voice-list" id="voiceList" aria-live="polite">
+                        <div class="empty">正在读取克隆音色…</div>
+                    </div>
+                    <div class="hint">Edge TTS 预设音色没有本地参考音频，因此不能用于歌声转换。</div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-head">
+                    <div>
+                        <div class="panel-title">原曲 / 导唱与转换参数</div>
+                        <div class="panel-subtitle">原曲模式会自动分离人声并保留原伴奏</div>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <fieldset class="mode-fieldset" aria-describedby="modeHint">
+                        <legend class="field-label">输入模式</legend>
+                        <div class="mode-options">
+                            <label class="mode-option" id="originalModeOption">
+                                <input id="originalMode" type="radio" name="sourceMode" value="original" checked>
+                                <span><strong>原曲模式</strong><small>上传完整歌曲，自动分离人声并保留原伴奏</small></span>
+                                <em>推荐</em>
+                            </label>
+                            <label class="mode-option" id="vocalModeOption">
+                                <input id="vocalMode" type="radio" name="sourceMode" value="vocal">
+                                <span><strong>已分离人声</strong><small>跳过人声分离，适合已有干声或想更快测试</small></span>
+                            </label>
+                        </div>
+                        <div class="hint" id="modeHint">直接上传带伴奏的原曲即可，系统会先分离人声，再把转换后的歌声混回原伴奏。</div>
+                    </fieldset>
+
+                    <div class="field-label" id="sourceLabel">原曲音频（必填）</div>
+                    <input id="sourceInput" type="file" accept=".ncm,.wav,.mp3,audio/x-ncm,audio/wav,audio/mpeg" hidden aria-labelledby="sourceLabel">
+                    <div class="dropzone" id="sourceDrop" role="button" tabindex="0" aria-controls="sourceInput" aria-describedby="sourceHint">
+                        <div class="drop-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3"/></svg>
+                        </div>
+                        <strong id="sourceDropTitle">选择或拖入原曲音频</strong>
+                        <span id="sourceDropHint">支持 NCM / WAV / MP3，最长 10 分钟，最大 100MB</span>
+                    </div>
+                    <div class="file-meta" id="sourceMeta">尚未选择文件</div>
+                    <audio class="source-preview" id="sourcePreview" controls preload="metadata"></audio>
+                    <div class="hint" id="sourceHint">原曲中的旋律、节奏、咬字和情感会被保留；本功能不负责自动作曲。</div>
+
+                    <div class="song-name-control">
+                        <label class="field-label" for="songNameInput">歌曲名称（用于输出文件名）</label>
+                        <input class="text-input" id="songNameInput" type="text" maxlength="80" autocomplete="off" placeholder="例如：Hardest to Be" aria-describedby="songNameHint">
+                        <div class="hint" id="songNameHint">系统会先使用音频文件名；如果文件名是“歌手 - 歌曲名”或“歌曲名 - 歌手”，请确认或修改这里。</div>
+                    </div>
+
+                    <fieldset class="control-grid" aria-label="转换参数">
+                        <div class="control">
+                            <label class="field-label" for="pitchRange">音高调整</label>
+                            <div class="range-row">
+                                <input id="pitchRange" type="range" min="-12" max="12" step="1" value="0">
+                                <span class="range-value" id="pitchValue">0 半音</span>
+                            </div>
+                            <div class="hint">适合整体偏高或偏低时微调</div>
+                        </div>
+                        <div class="control">
+                            <label class="field-label" for="stepsSelect">转换质量</label>
+                            <select id="stepsSelect" aria-describedby="stepsHint">
+                                <option value="30">标准 · 30 步</option>
+                                <option value="35" selected>均衡 · 35 步</option>
+                                <option value="40">高质量 · 40 步</option>
+                                <option value="50">最高质量 · 50 步</option>
+                            </select>
+                            <div class="hint" id="stepsHint">步数越高通常越慢；首次建议使用均衡。</div>
+                        </div>
+                    </fieldset>
+
+                    <label class="consent"><input id="consentInput" type="checkbox"><span>我确认拥有导唱音频与目标声音的使用授权，并同意仅在本机处理。</span></label>
+                    <div class="actions">
+                        <button class="primary" id="convertBtn" type="button" disabled>开始转换</button>
+                        <button class="secondary" id="clearBtn" type="button">清空音频</button>
+                    </div>
+
+                    <div class="error-box" id="errorBox" role="alert" aria-live="assertive"></div>
+                    <div class="success-box" id="successBox" role="status" aria-live="polite"></div>
+
+                    <div class="progress-card" id="progressCard" aria-live="polite" aria-busy="false">
+                        <div class="progress-top">
+                            <span class="spinner" id="spinner"></span>
+                            <div>
+                                <div class="progress-title" id="progressTitle">准备转换</div>
+                                <div class="progress-sub" id="progressSub">已用时 0 秒</div>
+                            </div>
+                        </div>
+                        <div class="bar"><div class="bar-fill" id="progressFill"></div></div>
+                        <div class="progress-message" id="progressMessage">提交中…</div>
+                    </div>
+
+                    <div class="result" id="resultArea">
+                        <div class="field-label">转换结果</div>
+                        <audio id="resultPlayer" controls preload="metadata"></audio>
+                        <div class="result-meta" id="resultMeta"></div>
+                        <a class="download-link" id="downloadLink" download>下载 WAV</a>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <section class="panel history-panel">
+            <div class="panel-head">
+                <div>
+                    <div class="panel-title">本次会话历史</div>
+                    <div class="panel-subtitle">结果只保留在当前页面会话中</div>
+                </div>
+                <div class="panel-count" id="historyCount">0 条</div>
+            </div>
+            <div class="panel-body">
+                <div class="history-list" id="historyList"><div class="empty">转换完成后的音频会显示在这里。</div></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            'use strict';
+            const API_BASE = '/api';
+            const $ = (id) => document.getElementById(id);
+            const state = {
+                voices: [], selectedVoiceId: '', sourceFile: null, sourceUrl: '',
+                engineReady: false, ncmReady: true, maxUploadBytes: 100 * 1024 * 1024,
+                separationReady: false, mode: 'original',
+                minDuration: 1, maxDuration: 600, generating: false, history: [],
+            };
+
+            const engineBadge = $('engineBadge');
+            const engineNotice = $('engineNotice');
+            const engineNoticeTitle = $('engineNoticeTitle');
+            const engineNoticeText = $('engineNoticeText');
+            const voiceList = $('voiceList');
+            const voiceCount = $('voiceCount');
+            const originalMode = $('originalMode');
+            const vocalMode = $('vocalMode');
+            const originalModeOption = $('originalModeOption');
+            const sourceLabel = $('sourceLabel');
+            const sourceInput = $('sourceInput');
+            const sourceDrop = $('sourceDrop');
+            const sourceDropTitle = $('sourceDropTitle');
+            const sourceDropHint = $('sourceDropHint');
+            const sourceMeta = $('sourceMeta');
+            const sourcePreview = $('sourcePreview');
+            const sourceHint = $('sourceHint');
+            const songNameInput = $('songNameInput');
+            const modeHint = $('modeHint');
+            const pitchRange = $('pitchRange');
+            const pitchValue = $('pitchValue');
+            const stepsSelect = $('stepsSelect');
+            const consentInput = $('consentInput');
+            const convertBtn = $('convertBtn');
+            const clearBtn = $('clearBtn');
+            const errorBox = $('errorBox');
+            const successBox = $('successBox');
+            const progressCard = $('progressCard');
+            const spinner = $('spinner');
+            const progressTitle = $('progressTitle');
+            const progressSub = $('progressSub');
+            const progressFill = $('progressFill');
+            const progressMessage = $('progressMessage');
+            const resultArea = $('resultArea');
+            const resultPlayer = $('resultPlayer');
+            const resultMeta = $('resultMeta');
+            const downloadLink = $('downloadLink');
+            const historyList = $('historyList');
+            const historyCount = $('historyCount');
+            const settingsToggle = $('settingsToggle');
+            const settingsPanel = $('settingsPanel');
+            const settingsClose = $('settingsClose');
+            const colorWheelButton = $('colorWheelButton');
+            const colorWheelCenter = $('colorWheelCenter');
+            const themeColorValue = $('themeColorValue');
+            const themeSwatches = Array.from(document.querySelectorAll('.theme-swatch'));
+            const themeModeInputs = Array.from(document.querySelectorAll('input[name="themeMode"]'));
+            const THEME_KEY = 'toolbox-color-theme';
+            const ACCENT_KEY = 'toolbox-accent-color';
+            const DEFAULT_ACCENT = '#2b5cff';
+            let currentAccentHex = DEFAULT_ACCENT;
+
+            function escapeHtml(value) {
+                return String(value == null ? '' : value)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }
+            function normalizeHex(value) {
+                const match = String(value || '').trim().match(/^#?([0-9a-f]{6})$/i);
+                return match ? `#${match[1].toLowerCase()}` : '';
+            }
+            function hexToRgb(value) {
+                const hex = normalizeHex(value).slice(1);
+                if (!hex) return null;
+                return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
+            }
+            function rgbToHex(rgb) {
+                return `#${[rgb.r, rgb.g, rgb.b].map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0')).join('')}`;
+            }
+            function rgbToCss(rgb) { return `${Math.round(rgb.r)}, ${Math.round(rgb.g)}, ${Math.round(rgb.b)}`; }
+            function hslToHex(hue, saturation, lightness) {
+                const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+                const section = (hue / 60) % 2;
+                const second = chroma * (1 - Math.abs(section - 1));
+                const match = hue < 60 ? [chroma, second, 0]
+                    : hue < 120 ? [second, chroma, 0]
+                        : hue < 180 ? [0, chroma, second]
+                            : hue < 240 ? [0, second, chroma]
+                                : hue < 300 ? [second, 0, chroma]
+                                    : [chroma, 0, second];
+                const offset = lightness - chroma / 2;
+                return rgbToHex({ r: (match[0] + offset) * 255, g: (match[1] + offset) * 255, b: (match[2] + offset) * 255 });
+            }
+            function rgbToHsl(rgb) {
+                const red = rgb.r / 255;
+                const green = rgb.g / 255;
+                const blue = rgb.b / 255;
+                const max = Math.max(red, green, blue);
+                const min = Math.min(red, green, blue);
+                const delta = max - min;
+                let hue = 0;
+                const lightness = (max + min) / 2;
+                let saturation = 0;
+                if (delta) {
+                    saturation = delta / (1 - Math.abs(2 * lightness - 1));
+                    if (max === red) hue = 60 * (((green - blue) / delta) % 6);
+                    else if (max === green) hue = 60 * ((blue - red) / delta + 2);
+                    else hue = 60 * ((red - green) / delta + 4);
+                    if (hue < 0) hue += 360;
+                }
+                return { h: hue, s: Math.max(0, Math.min(1, saturation || 0)), l: lightness };
+            }
+            function updateWheelThumb(hex) {
+                const rgb = hexToRgb(hex);
+                if (!rgb) return;
+                const hsl = rgbToHsl(rgb);
+                const angle = hsl.h * Math.PI / 180;
+                const radius = hsl.s * 43;
+                colorWheelCenter.style.left = `${50 + Math.sin(angle) * radius}%`;
+                colorWheelCenter.style.top = `${50 - Math.cos(angle) * radius}%`;
+                colorWheelCenter.style.background = hex;
+                colorWheelButton.setAttribute('aria-label', `主题颜色调色盘，当前 ${hex.toUpperCase()}；点击或拖动选择颜色，方向键可微调`);
+            }
+            function mixRgb(from, to, amount) {
+                return {
+                    r: from.r + (to.r - from.r) * amount,
+                    g: from.g + (to.g - from.g) * amount,
+                    b: from.b + (to.b - from.b) * amount,
+                };
+            }
+            function channelLuminance(channel) {
+                const value = channel / 255;
+                return value <= .03928 ? value / 12.92 : Math.pow((value + .055) / 1.055, 2.4);
+            }
+            function relativeLuminance(rgb) {
+                return .2126 * channelLuminance(rgb.r) + .7152 * channelLuminance(rgb.g) + .0722 * channelLuminance(rgb.b);
+            }
+            function contrastRatio(first, second) {
+                const light = Math.max(relativeLuminance(first), relativeLuminance(second));
+                const dark = Math.min(relativeLuminance(first), relativeLuminance(second));
+                return (light + .05) / (dark + .05);
+            }
+            function ensureContrast(color, background, minimum, toward) {
+                if (contrastRatio(color, background) >= minimum) return color;
+                const target = toward === 'light' ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 };
+                let low = 0;
+                let high = 1;
+                let best = color;
+                for (let index = 0; index < 14; index += 1) {
+                    const amount = (low + high) / 2;
+                    const candidate = mixRgb(color, target, amount);
+                    if (contrastRatio(candidate, background) >= minimum) { best = candidate; high = amount; }
+                    else low = amount;
+                }
+                return best;
+            }
+            function applyThemeColor(value, persist = true) {
+                const rawHex = normalizeHex(value) || DEFAULT_ACCENT;
+                const rawRgb = hexToRgb(rawHex);
+                const dark = document.documentElement.dataset.theme === 'dark';
+                const panelRgb = hexToRgb(dark ? '#111827' : '#ffffff');
+                const accentRgb = ensureContrast(rawRgb, panelRgb, 4.5, dark ? 'light' : 'dark');
+                const accentDarkRgb = ensureContrast(
+                    dark ? mixRgb(accentRgb, { r: 255, g: 255, b: 255 }, .16) : mixRgb(accentRgb, { r: 0, g: 0, b: 0 }, .16),
+                    panelRgb,
+                    4.5,
+                    dark ? 'light' : 'dark',
+                );
+                const softRgb = mixRgb(panelRgb, accentRgb, dark ? .16 : .1);
+                const white = { r: 255, g: 255, b: 255 };
+                const darkText = hexToRgb(dark ? '#081225' : '#1b2436');
+                const onAccent = contrastRatio(white, accentRgb) >= contrastRatio(darkText, accentRgb) ? white : darkText;
+                const root = document.documentElement;
+                root.style.setProperty('--accent', rgbToHex(accentRgb));
+                root.style.setProperty('--accent-dark', rgbToHex(accentDarkRgb));
+                root.style.setProperty('--accent-soft', rgbToHex(softRgb));
+                root.style.setProperty('--accent-rgb', rgbToCss(accentRgb));
+                root.style.setProperty('--focus-ring', `rgba(${rgbToCss(accentRgb)}, ${dark ? '.28' : '.18'})`);
+                root.style.setProperty('--on-accent', rgbToHex(onAccent));
+                root.style.setProperty('--cta', rgbToHex(accentRgb));
+                root.style.setProperty('--cta-hover', rgbToHex(accentDarkRgb));
+                root.style.setProperty('--on-cta', rgbToHex(onAccent));
+                currentAccentHex = rawHex;
+                themeColorValue.textContent = rawHex.toUpperCase();
+                updateWheelThumb(rawHex);
+                themeSwatches.forEach((swatch) => swatch.setAttribute('aria-pressed', String(normalizeHex(swatch.dataset.themeColor) === rawHex)));
+                if (persist) persistThemeColor();
+            }
+            function persistThemeColor() {
+                try { localStorage.setItem(ACCENT_KEY, currentAccentHex); } catch (e) {}
+            }
+            function syncThemeMode() {
+                const mode = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+                themeModeInputs.forEach((input) => { input.checked = input.value === mode; });
+            }
+            function setTheme(mode) {
+                document.documentElement.dataset.theme = mode === 'dark' ? 'dark' : 'light';
+                try { localStorage.setItem(THEME_KEY, document.documentElement.dataset.theme); } catch (e) {}
+                syncThemeMode();
+                applyThemeColor(currentAccentHex, false);
+            }
+            function closeSettings(returnFocus = false) {
+                settingsPanel.hidden = true;
+                settingsToggle.setAttribute('aria-expanded', 'false');
+                if (returnFocus) settingsToggle.focus();
+            }
+            function openSettings() {
+                settingsPanel.hidden = false;
+                settingsToggle.setAttribute('aria-expanded', 'true');
+                updateWheelThumb(currentAccentHex);
+                settingsClose.focus();
+            }
+            function setupSettings() {
+                let savedAccent = '';
+                try { savedAccent = localStorage.getItem(ACCENT_KEY) || ''; } catch (e) {}
+                syncThemeMode();
+                applyThemeColor(savedAccent || DEFAULT_ACCENT);
+                settingsToggle.addEventListener('click', () => settingsPanel.hidden ? openSettings() : closeSettings());
+                settingsClose.addEventListener('click', () => closeSettings(true));
+                let wheelPointerId = null;
+                let wheelFrame = 0;
+                let pendingWheelPoint = null;
+                let wheelDragging = false;
+                const selectWheelColor = (point, persist = false) => {
+                    const rect = colorWheelButton.getBoundingClientRect();
+                    const centerX = rect.left + rect.width / 2;
+                    const centerY = rect.top + rect.height / 2;
+                    const radius = Math.min(rect.width, rect.height) / 2;
+                    const deltaX = point.clientX - centerX;
+                    const deltaY = point.clientY - centerY;
+                    const usableRadius = Math.max(1, radius * .86);
+                    const distance = Math.min(Math.hypot(deltaX, deltaY), usableRadius);
+                    const saturation = Math.max(0, Math.min(1, distance / usableRadius));
+                    const hue = (Math.atan2(deltaY, deltaX) * 180 / Math.PI + 90 + 360) % 360;
+                    applyThemeColor(hslToHex(hue, saturation, .5), persist);
+                };
+                const flushWheelPoint = () => {
+                    if (wheelFrame) {
+                        window.cancelAnimationFrame(wheelFrame);
+                        wheelFrame = 0;
+                    }
+                    if (pendingWheelPoint) {
+                        const point = pendingWheelPoint;
+                        pendingWheelPoint = null;
+                        selectWheelColor(point);
+                    }
+                };
+                const queueWheelPoint = (event) => {
+                    pendingWheelPoint = { clientX: event.clientX, clientY: event.clientY };
+                    if (wheelFrame) return;
+                    wheelFrame = window.requestAnimationFrame(() => {
+                        wheelFrame = 0;
+                        const point = pendingWheelPoint;
+                        pendingWheelPoint = null;
+                        if (point) selectWheelColor(point);
+                    });
+                };
+                const finishWheelDrag = (event) => {
+                    if (!wheelDragging || (wheelPointerId !== null && event.pointerId !== wheelPointerId)) return;
+                    flushWheelPoint();
+                    wheelDragging = false;
+                    wheelPointerId = null;
+                    colorWheelButton.classList.remove('is-dragging');
+                    persistThemeColor();
+                };
+                colorWheelButton.addEventListener('pointerdown', (event) => {
+                    event.preventDefault();
+                    wheelDragging = true;
+                    wheelPointerId = event.pointerId;
+                    colorWheelButton.classList.add('is-dragging');
+                    colorWheelButton.setPointerCapture?.(event.pointerId);
+                    selectWheelColor(event);
+                });
+                colorWheelButton.addEventListener('pointermove', (event) => {
+                    if (wheelDragging && (wheelPointerId === null || event.pointerId === wheelPointerId)) queueWheelPoint(event);
+                });
+                ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((eventName) => colorWheelButton.addEventListener(eventName, finishWheelDrag));
+                colorWheelButton.addEventListener('keydown', (event) => {
+                    const hsl = rgbToHsl(hexToRgb(currentAccentHex));
+                    const hueStep = event.shiftKey ? 15 : 5;
+                    const saturationStep = event.shiftKey ? .1 : .05;
+                    let changed = true;
+                    if (event.key === 'ArrowLeft') hsl.h = (hsl.h - hueStep + 360) % 360;
+                    else if (event.key === 'ArrowRight') hsl.h = (hsl.h + hueStep) % 360;
+                    else if (event.key === 'ArrowUp') hsl.s = Math.min(1, hsl.s + saturationStep);
+                    else if (event.key === 'ArrowDown') hsl.s = Math.max(0, hsl.s - saturationStep);
+                    else changed = false;
+                    if (!changed) return;
+                    event.preventDefault();
+                    applyThemeColor(hslToHex(hsl.h, hsl.s, .5));
+                });
+                themeSwatches.forEach((swatch) => swatch.addEventListener('click', () => applyThemeColor(swatch.dataset.themeColor)));
+                themeModeInputs.forEach((input) => input.addEventListener('change', () => { if (input.checked) setTheme(input.value); }));
+                document.addEventListener('click', (event) => {
+                    if (settingsPanel.hidden || settingsPanel.contains(event.target) || settingsToggle.contains(event.target)) return;
+                    closeSettings();
+                });
+                document.addEventListener('keydown', (event) => {
+                    if (event.key === 'Escape' && !settingsPanel.hidden) closeSettings(true);
+                });
+            }
+            function formatTime(seconds) {
+                const value = Math.max(0, Math.round(Number(seconds) || 0));
+                if (value < 60) return `${value} 秒`;
+                return `${Math.floor(value / 60)} 分 ${value % 60} 秒`;
+            }
+            function suggestSongName(filename) {
+                const base = String(filename || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+                return base.replace(/\s+/g, ' ').trim();
+            }
+            async function readJson(response) {
+                try { return await response.json(); } catch (e) { return {}; }
+            }
+            function showError(message) {
+                errorBox.textContent = message || '操作失败';
+                errorBox.classList.add('active');
+                successBox.classList.remove('active');
+            }
+            function clearError() { errorBox.textContent = ''; errorBox.classList.remove('active'); }
+            function showSuccess(message) {
+                successBox.textContent = message || '';
+                successBox.classList.add('active');
+                window.setTimeout(() => successBox.classList.remove('active'), 4500);
+            }
+            function updateModeUI() {
+                originalMode.disabled = !state.separationReady;
+                originalModeOption.classList.toggle('unavailable', !state.separationReady);
+                if (!state.separationReady) {
+                    originalMode.checked = false;
+                    vocalMode.checked = true;
+                }
+                state.mode = originalMode.checked ? 'original' : 'vocal';
+                const isOriginal = state.mode === 'original';
+                const ncmSelected = state.sourceFile && String(state.sourceFile.name || '').toLowerCase().endsWith('.ncm');
+                sourceLabel.textContent = `${isOriginal ? '原曲' : '已分离人声'}音频（必填）`;
+                sourceDropTitle.textContent = `选择或拖入${isOriginal ? '原曲' : '已分离人声'}音频`;
+                sourceDropHint.textContent = isOriginal
+                    ? '支持 NCM / WAV / MP3，最长 10 分钟，最大 100MB'
+                    : '支持 NCM / WAV / MP3，最长 10 分钟，最大 100MB；跳过人声分离';
+                modeHint.textContent = isOriginal
+                    ? '直接上传带伴奏的原曲即可，系统会先分离人声，再把转换后的歌声混回原伴奏。'
+                    : '上传已经分离好的人声，系统会跳过分离步骤，处理更快；输出仅包含转换后的人声。';
+                sourceHint.textContent = ncmSelected
+                    ? 'NCM 会先在本机解码为临时 WAV，不会上传到网络；随后按当前模式继续处理。'
+                    : (isOriginal
+                        ? '原曲中的旋律、节奏、咬字和情感会被保留；转换后会混回原伴奏。'
+                        : '导唱里的旋律、节奏、咬字和情感会被保留；本功能不负责自动作曲。');
+                updateConvertAvailability();
+            }
+            function updateConvertAvailability() {
+                const sourceExt = state.sourceFile ? String(state.sourceFile.name || '').split('.').pop().toLowerCase() : '';
+                convertBtn.disabled = state.generating || !state.engineReady || !state.selectedVoiceId || !state.sourceFile || (sourceExt === 'ncm' && !state.ncmReady) || !consentInput.checked;
+            }
+
+            async function loadEngineStatus() {
+                try {
+                    const response = await fetch(`${API_BASE}/singing/status`);
+                    const data = await readJson(response);
+                    if (!response.ok) throw new Error(data.error || '无法检查引擎状态');
+                    state.engineReady = Boolean(data.ready);
+                    state.ncmReady = data.ncm_ready !== false;
+                    state.separationReady = Boolean(data.ready && data.separation && data.separation.ready);
+                    state.maxUploadBytes = Math.max(1, Number(data.max_upload_mb) || 100) * 1024 * 1024;
+                    state.minDuration = Number(data.min_duration_sec) || 1;
+                    state.maxDuration = Number(data.max_duration_sec) || 600;
+                    if (data.default_diffusion_steps) stepsSelect.value = String(data.default_diffusion_steps);
+                    if (state.engineReady) {
+                        engineBadge.textContent = state.separationReady ? '原曲模式已就绪' : '转换引擎已就绪';
+                        engineBadge.className = 'engine-badge ready';
+                        engineNotice.className = 'notice';
+                        engineNoticeTitle.textContent = state.separationReady ? '原曲模式已就绪' : '歌声转换已就绪';
+                        if (state.separationReady) {
+                            engineNoticeText.textContent = data.auto_download_models
+                                ? '可直接上传完整原曲；首次生成会按 Seed-VC / Demucs 默认配置下载模型。'
+                                : '可直接上传完整原曲，系统会自动分离、转换并混回伴奏。';
+                        } else {
+                            engineNoticeText.innerHTML = `歌声转换可以使用，但原曲模式暂不可用：${escapeHtml((data.separation && data.separation.reason) || '未找到 Demucs 运行环境')}。你仍可选择已分离人声模式。`;
+                        }
+                    } else {
+                        engineBadge.textContent = '需要配置引擎';
+                        engineBadge.className = 'engine-badge error';
+                        engineNotice.className = 'notice error';
+                        engineNoticeTitle.textContent = '暂时不能开始转换';
+                        engineNoticeText.innerHTML = `${escapeHtml(data.reason || '未找到 Seed-VC 运行环境')}<ol class="setup-list"><li>将 Seed-VC 放到项目的 <code>tts_poc/Seed-VC</code>，或配置 <code>SINGING_VC_ROOT</code>。</li><li>为它准备独立 Python 环境，并配置 <code>SINGING_VC_PYTHON</code>。</li><li>参考 <a href="https://github.com/Plachtaa/seed-vc" target="_blank" rel="noreferrer">Seed-VC 官方仓库</a> 安装依赖。</li></ol>`;
+                    }
+                } catch (error) {
+                    state.engineReady = false;
+                    engineBadge.textContent = '状态检查失败';
+                    engineBadge.className = 'engine-badge error';
+                    engineNotice.className = 'notice error';
+                    engineNoticeTitle.textContent = '无法检查歌声转换引擎';
+                    engineNoticeText.textContent = error.message || '请确认 Flask 服务正在运行。';
+                }
+                updateModeUI();
+                updateConvertAvailability();
+            }
+
+            async function loadVoices() {
+                try {
+                    const response = await fetch(`${API_BASE}/voices`);
+                    const data = await readJson(response);
+                    if (!response.ok) throw new Error(data.error || '读取音色列表失败');
+                    state.voices = (data.voices || []).filter((voice) => voice.type === 'cosyvoice3');
+                    renderVoices();
+                } catch (error) {
+                    voiceCount.textContent = '读取失败';
+                    voiceList.innerHTML = `<div class="empty">${escapeHtml(error.message || '读取音色列表失败')}</div>`;
+                }
+            }
+            function renderVoices() {
+                const available = state.voices.filter((voice) => voice.singing_available !== false);
+                voiceCount.textContent = `${available.length} 个可用音色`;
+                if (!available.length) {
+                    state.selectedVoiceId = '';
+                    voiceList.innerHTML = '<div class="empty">还没有可用于唱歌的克隆音色。请先到 <a href="/tts">TTS 语音合成</a> 页面添加一个本地克隆音色。</div>';
+                    updateConvertAvailability();
+                    return;
+                }
+                if (!available.some((voice) => voice.id === state.selectedVoiceId)) state.selectedVoiceId = available[0].id;
+                voiceList.innerHTML = available.map((voice) => `
+                    <label class="voice-option">
+                        <input type="radio" name="singingVoice" value="${escapeHtml(voice.id)}" ${voice.id === state.selectedVoiceId ? 'checked' : ''}>
+                        <span><strong>${escapeHtml(voice.name)}</strong><small>CosyVoice3 本地参考音色${voice.language_label ? ` · ${escapeHtml(voice.language_label)}` : ''}</small></span>
+                    </label>`).join('');
+                updateConvertAvailability();
+            }
+            voiceList.addEventListener('change', (event) => {
+                if (!event.target.matches('input[name="singingVoice"]')) return;
+                state.selectedVoiceId = event.target.value;
+                clearError();
+                updateConvertAvailability();
+            });
+
+            [originalMode, vocalMode].forEach((input) => input.addEventListener('change', () => {
+                if (!input.checked) return;
+                updateModeUI();
+                clearError();
+            }));
+
+            function clearSource() {
+                state.sourceFile = null;
+                if (state.sourceUrl) URL.revokeObjectURL(state.sourceUrl);
+                state.sourceUrl = '';
+                sourcePreview.pause();
+                sourcePreview.removeAttribute('src');
+                sourcePreview.classList.remove('active');
+                sourcePreview.onloadedmetadata = null;
+                sourcePreview.onerror = null;
+                sourceInput.value = '';
+                sourceMeta.className = 'file-meta';
+                sourceMeta.textContent = '尚未选择文件';
+                songNameInput.value = '';
+                songNameInput.dataset.autofilled = 'false';
+                updateConvertAvailability();
+            }
+            function acceptSource(file) {
+                if (!file) return;
+                const kind = state.mode === 'original' ? '原曲' : '导唱';
+                const ext = String(file.name || '').split('.').pop().toLowerCase();
+                if (!['ncm', 'wav', 'mp3'].includes(ext)) { clearSource(); showError('格式不支持，请选择 NCM、WAV 或 MP3 文件。'); return; }
+                if (file.size <= 0 || file.size > state.maxUploadBytes) { clearSource(); showError(`文件为空或超过 ${Math.round(state.maxUploadBytes / 1024 / 1024)}MB。`); return; }
+                clearSource();
+                state.sourceFile = file;
+                songNameInput.value = suggestSongName(file.name);
+                songNameInput.dataset.autofilled = 'true';
+                if (ext === 'ncm') {
+                    sourceMeta.className = 'file-meta ready';
+                    sourceMeta.textContent = `${file.name} · NCM 加密音频，将在本机解码后处理`;
+                    sourceHint.textContent = 'NCM 会先在本机解码为临时 WAV，不会上传到网络；如果使用原曲模式，随后会自动分离人声并混回伴奏。';
+                    clearError();
+                    updateConvertAvailability();
+                    return;
+                }
+                state.sourceUrl = URL.createObjectURL(file);
+                sourcePreview.src = state.sourceUrl;
+                sourcePreview.classList.add('active');
+                sourceMeta.textContent = `正在读取 ${file.name}…`;
+                clearError();
+                sourcePreview.onloadedmetadata = () => {
+                    const duration = Number(sourcePreview.duration || 0);
+                    if (!Number.isFinite(duration) || duration < state.minDuration || duration > state.maxDuration) {
+                        const limit = duration > state.maxDuration ? `不能超过 ${formatTime(state.maxDuration)}` : `至少需要 ${state.minDuration} 秒`;
+                        clearSource();
+                        showError(`${kind}时长不符合要求：${limit}。`);
+                        return;
+                    }
+                    sourceMeta.className = 'file-meta ready';
+                    sourceMeta.textContent = `${file.name} · ${formatTime(duration)} · ${(file.size / 1024 / 1024).toFixed(1)}MB`;
+                    updateConvertAvailability();
+                };
+                sourcePreview.onerror = () => { clearSource(); showError(`无法读取${kind}音频，请确认文件未损坏。`); };
+                updateConvertAvailability();
+            }
+            sourceDrop.addEventListener('click', () => sourceInput.click());
+            sourceDrop.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); sourceInput.click(); }
+            });
+            sourceInput.addEventListener('change', () => acceptSource(sourceInput.files[0]));
+            ['dragenter', 'dragover'].forEach((type) => sourceDrop.addEventListener(type, (event) => { event.preventDefault(); sourceDrop.classList.add('dragover'); }));
+            ['dragleave', 'drop'].forEach((type) => sourceDrop.addEventListener(type, (event) => { event.preventDefault(); sourceDrop.classList.remove('dragover'); }));
+            sourceDrop.addEventListener('drop', (event) => acceptSource(event.dataTransfer.files[0]));
+
+            pitchRange.addEventListener('input', () => {
+                const value = Number(pitchRange.value) || 0;
+                pitchValue.textContent = `${value > 0 ? '+' : ''}${value} 半音`;
+            });
+            songNameInput.addEventListener('input', () => { songNameInput.dataset.autofilled = 'false'; });
+            consentInput.addEventListener('change', updateConvertAvailability);
+            clearBtn.addEventListener('click', () => { clearSource(); clearError(); resultArea.classList.remove('active'); sourceDrop.focus(); });
+
+            let progressStartedAt = 0;
+            let progressTimer = null;
+            let spinnerFrame = 0;
+            function startSpinnerMotion() {
+                // Keep the animation in CSS so it remains reliable when the main
+                // thread is busy and when requestAnimationFrame is throttled.
+                spinner.classList.remove('js-motion');
+                spinner.style.removeProperty('transform');
+            }
+            function stopSpinnerMotion() {
+                if (spinnerFrame) window.cancelAnimationFrame(spinnerFrame);
+                spinnerFrame = 0;
+                spinner.classList.remove('js-motion');
+                spinner.style.transform = '';
+            }
+            function startProgress() {
+                progressStartedAt = Date.now();
+                progressCard.classList.add('active');
+                progressCard.classList.add('indeterminate');
+                progressCard.setAttribute('aria-busy', 'true');
+                spinner.classList.add('active');
+                startSpinnerMotion();
+                progressTitle.textContent = state.mode === 'original' ? '正在处理原曲' : '正在转换歌声音色';
+                progressSub.textContent = '已用时 0 秒';
+                progressFill.style.width = '8%';
+                progressMessage.textContent = '正在提交任务…';
+                progressTimer = window.setInterval(() => { progressSub.textContent = `已用时 ${formatTime((Date.now() - progressStartedAt) / 1000)}`; }, 500);
+            }
+            function stopProgress() { if (progressTimer) window.clearInterval(progressTimer); progressTimer = null; stopSpinnerMotion(); spinner.classList.remove('active'); progressCard.setAttribute('aria-busy', 'false'); }
+            function failProgress(message) { stopProgress(); progressCard.classList.remove('active', 'indeterminate'); showError(message); }
+            async function waitForTask(taskId) {
+                while (true) {
+                    await new Promise((resolve) => window.setTimeout(resolve, 900));
+                    const response = await fetch(`${API_BASE}/status/${encodeURIComponent(taskId)}`);
+                    const task = await readJson(response);
+                    if (!response.ok) throw new Error(task.error || '读取转换进度失败');
+                    const progress = Math.max(0, Math.min(100, Number(task.progress) || 0));
+                    progressFill.style.width = `${progress}%`;
+                    progressMessage.textContent = `${Math.round(progress)}% · ${task.message || '处理中…'}`;
+                    const titles = { queued: '等待开始', prepare: '准备歌声转换引擎', separate: '正在分离原曲人声', convert: '正在转换歌声音色', mix: '正在混回原伴奏', finalize: '正在整理输出', completed: '转换完成' };
+                    progressTitle.textContent = titles[task.stage] || '正在转换歌声音色';
+                    progressCard.classList.toggle('indeterminate', Boolean(task.indeterminate));
+                    if (task.status === 'completed') return task.result || {};
+                    if (task.status === 'failed' || task.status === 'cancelled') throw new Error(task.message || '转换失败');
+                }
+            }
+            convertBtn.addEventListener('click', async () => {
+                if (state.generating) return;
+                if (!state.engineReady) { showError('歌声转换引擎还未就绪，请先完成配置。'); return; }
+                if (!state.selectedVoiceId) { showError('请先选择一个本地克隆音色。'); return; }
+                if (!state.sourceFile) { showError(`请先上传${state.mode === 'original' ? '原曲' : '导唱'}音频。`); return; }
+                const songName = songNameInput.value.trim();
+                if (!songName) { showError('请填写歌曲名称，用于生成输出文件名。'); songNameInput.focus(); return; }
+                if (!consentInput.checked) { showError('请确认你拥有导唱与目标声音的使用授权。'); consentInput.focus(); return; }
+                state.generating = true;
+                updateConvertAvailability();
+                clearError();
+                successBox.classList.remove('active');
+                resultArea.classList.remove('active');
+                startProgress();
+                try {
+                    const form = new FormData();
+                    form.append('source', state.sourceFile, state.sourceFile.name);
+                    form.append('source_mode', state.mode);
+                    form.append('voice_id', state.selectedVoiceId);
+                    form.append('song_name', songNameInput.dataset.autofilled === 'true' ? '' : songName);
+                    form.append('semi_tone_shift', pitchRange.value);
+                    form.append('diffusion_steps', stepsSelect.value);
+                    form.append('auto_f0_adjust', 'false');
+                    form.append('consent', 'true');
+                    const response = await fetch(`${API_BASE}/singing/convert`, { method: 'POST', body: form });
+                    const submitted = await readJson(response);
+                    if (!response.ok) throw new Error(submitted.error || '提交转换失败');
+                    if (submitted.song_name && submitted.song_name !== songName) {
+                        songNameInput.value = submitted.song_name;
+                        songNameInput.dataset.autofilled = 'false';
+                    }
+                    const result = submitted.task_id ? await waitForTask(submitted.task_id) : submitted;
+                    const voice = state.voices.find((item) => item.id === state.selectedVoiceId);
+                    const voiceName = voice ? voice.name : state.selectedVoiceId;
+                    const audioUrl = result.audio_url;
+                    const outputFilename = result.filename || `${result.song_name || songName} - ${voiceName}.wav`;
+                    resultPlayer.src = audioUrl;
+                    downloadLink.href = result.download_url || `${audioUrl}?download=1`;
+                    downloadLink.download = outputFilename;
+                    const modeLabel = result.mode_label || (state.mode === 'original' ? '原曲模式' : '已分离人声');
+                    resultMeta.textContent = `${outputFilename} · ${modeLabel} · 音高 ${Number(pitchRange.value) > 0 ? '+' : ''}${pitchRange.value} 半音`;
+                    resultArea.classList.add('active');
+                    progressFill.style.width = '100%';
+                    progressMessage.textContent = '转换完成';
+                    stopProgress();
+                    progressCard.classList.remove('active', 'indeterminate');
+                    showSuccess(`AI 唱歌转换完成：${voiceName}`);
+                    addHistory({ voice: voiceName, mode: modeLabel, source: result.source_name || state.sourceFile.name, audioUrl, time: new Date().toLocaleTimeString('zh-CN', { hour12: false }) });
+                } catch (error) {
+                    failProgress(error.message || '转换失败');
+                } finally {
+                    state.generating = false;
+                    updateConvertAvailability();
+                }
+            });
+
+            function addHistory(item) { state.history.unshift(item); if (state.history.length > 12) state.history.pop(); renderHistory(); }
+            function renderHistory() {
+                historyCount.textContent = `${state.history.length} 条`;
+                if (!state.history.length) { historyList.innerHTML = '<div class="empty">转换完成后的音频会显示在这里。</div>'; return; }
+                historyList.innerHTML = state.history.map((item, index) => `
+                    <div class="history-item">
+                        <div class="history-line"><span>#${index + 1} · ${escapeHtml(item.voice)}</span><span>${escapeHtml(item.time)}</span></div>
+                        <div class="history-source">${escapeHtml(item.mode || '歌声转换')} · ${escapeHtml(item.source)}</div>
+                        <audio controls preload="none" src="${escapeHtml(item.audioUrl)}"></audio>
+                    </div>`).join('');
+            }
+
+            setupSettings();
+
+            loadEngineStatus();
+            loadVoices();
+        }());
+    </script>
+</body>
+</html>

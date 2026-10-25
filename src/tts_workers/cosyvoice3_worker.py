@@ -268,6 +268,8 @@ class CosyVoice3Worker:
             seg_id = seg.get("segment_id", -1)
             text = (seg.get("text") or "").strip()
             out_path = seg.get("output_path", "")
+            mode = str(seg.get("mode") or "zero_shot").strip().lower()
+            instruction = str(seg.get("instruction") or "").strip()
             if not text or not out_path:
                 results.append({"segment_id": seg_id, "ok": False,
                                 "error": "缺少 text 或 output_path"})
@@ -288,13 +290,37 @@ class CosyVoice3Worker:
                         f"[Worker] 合成段 {seg_id}（质量尝试 {attempt}/{_MAX_QUALITY_ATTEMPTS}）: "
                         f"{text[:40]}..."
                     )
-                    # CosyVoice3 要求 prompt_text 含 <|endofprompt|> 分隔符：指令在前、参考文本在后
-                    prompt_text = "You are a helpful assistant.<|endofprompt|>" + (ref_text if ref_text else "")
-                    stream = self._tts.inference_zero_shot(
-                        text, prompt_text, safe_ref,
-                        stream=False, speed=speed,
-                    )
-                    # CosyVoice3.inference_zero_shot 会按句拆分 tts_text，每句 yield 一次。
+                    if mode in {"instruct", "instruct2"}:
+                        if not instruction:
+                            raise ValueError(f"段 {seg_id} 使用 instruct2 但缺少 instruction")
+                        instruct_text = instruction
+                        if not instruct_text.startswith("You are a helpful assistant."):
+                            instruct_text = "You are a helpful assistant. " + instruct_text
+                        if "<|endofprompt|>" not in instruct_text:
+                            instruct_text += "<|endofprompt|>"
+                        _log(f"[Worker] 段 {seg_id} 使用 instruct2: {instruct_text}")
+                        stream = self._tts.inference_instruct2(
+                            text, instruct_text, safe_ref,
+                            stream=False, speed=speed,
+                        )
+                    elif mode in {"cross_lingual", "cross-lingual", "crosslingual"}:
+                        _log(f"[Worker] 段 {seg_id} 使用 cross_lingual")
+                        # CosyVoice3 cross-lingual mode expects the same
+                        # assistant/end-of-prompt prefix used by its model
+                        # examples; without it the LLM assertion-fails.
+                        cross_text = "You are a helpful assistant.<|endofprompt|>" + text
+                        stream = self._tts.inference_cross_lingual(
+                            cross_text, safe_ref,
+                            stream=False, speed=speed,
+                        )
+                    else:
+                        # CosyVoice3 要求 prompt_text 含 <|endofprompt|> 分隔符：指令在前、参考文本在后
+                        prompt_text = "You are a helpful assistant.<|endofprompt|>" + (ref_text if ref_text else "")
+                        stream = self._tts.inference_zero_shot(
+                            text, prompt_text, safe_ref,
+                            stream=False, speed=speed,
+                        )
+                    # CosyVoice3 inference methods yield one or more chunks.
                     chunks = []
                     for sample in stream:
                         t = sample["tts_speech"]

@@ -6,6 +6,7 @@ moviepy>=1.0.3,<2
 pysrt>=1.1
 numpy>=1.26
 pillow>=10
+cryptography>=42,<49
 PyMuPDF>=1.24
 pywin32>=306; platform_system == "Windows"
 python-docx>=1.1

@@ -65,13 +65,17 @@ def resolve_whisper_model():
     raise RuntimeError("未找到本地 Whisper Base 模型，请手动填写录音逐字稿")
 
 
-def transcribe_audio(audio_path, timeout=300):
+def transcribe_audio(audio_path, timeout=300, language=None):
     """Transcribe a prepared reference clip in an isolated subprocess."""
     python = resolve_transcriber_python()
     model = resolve_whisper_model()
     worker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "transcribe_worker.py")
+    command = [python, worker, os.path.abspath(audio_path), model]
+    requested_language = str(language or "").strip().lower()
+    if requested_language and requested_language != "auto":
+        command.append(requested_language)
     result = subprocess.run(
-        [python, worker, os.path.abspath(audio_path), model],
+        command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

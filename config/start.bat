@@ -55,7 +55,7 @@ if "%NEED_BUILD%"=="1" (
 
 echo.
 echo [1/3] 检查并安装 Python 依赖...
-python -c "import flask, flask_cors, requests, edge_tts, moviepy, pysrt" 2>nul
+python -c "import flask, flask_cors, requests, edge_tts, moviepy, pysrt, cryptography" 2>nul
 if errorlevel 1 (
     echo [INFO] 缺少依赖，正在根据 config\requirements.txt 安装...
     python -m pip install -r config\requirements.txt

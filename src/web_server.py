@@ -21,7 +21,12 @@ from flask_cors import CORS
 
 from document_converter import LARGE_GENERATION_CONFIRM_COUNT, SUPPORTED_EXTENSIONS, count_upload_screens, save_upload_as_images
 from hardware_profile import detect_hardware, estimate_label, estimate_seconds, record_actual_run, FIRST_LOAD_OVERHEAD
-from voice_registry import VoiceRegistry, Validation
+from voice_registry import (
+    COSYVOICE_LANGUAGE_LABELS,
+    VoiceRegistry,
+    Validation,
+    normalize_voice_language,
+)
 from ffmpeg_util import resolve_ffmpeg, resolve_ffprobe
 from audio_transcriber import transcribe_audio
 import gpu_setup
@@ -48,6 +53,29 @@ from paths import (
     OUTPUT_SETTINGS_FILE,
     ensure_runtime_dirs,
 )
+from singing_voice import (
+    DEFAULT_DIFFUSION_STEPS,
+    MAX_SEMITONE_SHIFT,
+    MAX_UPLOAD_BYTES,
+    MIN_SEMITONE_SHIFT,
+    SingingVCError,
+    run_conversion,
+    status as singing_vc_status,
+    validate_source as validate_singing_source,
+)
+from singing_separation import (
+    mix_audio,
+    separate_song,
+    status as singing_separation_status,
+)
+from ncm_converter import (
+    MAX_UPLOAD_BYTES as NCM_MAX_UPLOAD_BYTES,
+    NCMError,
+    SUPPORTED_OUTPUT_FORMATS as NCM_OUTPUT_FORMATS,
+    convert_ncm,
+    inspect_ncm,
+    status as ncm_converter_status,
+)
 
 # 开发模式下把 src/ 加入 import 搜索路径（打包后 PyInstaller 自动处理）
 if not getattr(sys, "frozen", False):
@@ -61,6 +89,9 @@ BACKGROUND_MUSIC_DIR = os.path.join(DATA_ROOT, "background_music")
 BACKGROUND_MUSIC_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac"}
 BACKGROUND_MUSIC_MAX_BYTES = 50 * 1024 * 1024
 os.makedirs(BACKGROUND_MUSIC_DIR, exist_ok=True)
+
+AUDIO_CONVERTER_MAX_FILES = 20
+AUDIO_CONVERTER_MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 
 # 语音注册表（默认/预设静态常量 + 克隆清单持久化）与上传校验器
 VOICE_REGISTRY = VoiceRegistry(DATA_ROOT)
@@ -276,7 +307,7 @@ def _voice_is_edge(voice):
 
 def sanitize_filename_part(value, fallback="视频"):
     value = (value or "").strip()
-    value = re.sub(r'[\\/:*?"<>|]+', "", value)
+    value = re.sub(r'[\x00-\x1f\x7f\\/:*?"<>|]+', "", value)
     value = re.sub(r"\s+", " ", value).strip(" .")
     return value[:80] or fallback
 
@@ -322,6 +353,78 @@ def allowed_file(filename):
 
 def file_stem(filename):
     return os.path.splitext(os.path.basename(filename or ""))[0]
+
+
+def strip_audio_extension(value):
+    """Remove an audio extension when a user pastes one into a title field."""
+    value = (value or "").strip()
+    root, extension = os.path.splitext(value)
+    if extension.lower() in {".ncm", ".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}:
+        return root.strip()
+    return value
+
+
+def _probe_audio_title(path):
+    """Read an embedded local audio title without contacting an online service."""
+    ffprobe = resolve_ffprobe()
+    if not ffprobe or not os.path.isfile(path):
+        return ""
+    try:
+        result = subprocess.run(
+            [
+                ffprobe, "-v", "error",
+                "-show_entries", "format_tags=title",
+                "-of", "json", path,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+        )
+        if result.returncode != 0:
+            return ""
+        payload = json.loads(result.stdout or "{}")
+        tags = (payload.get("format") or {}).get("tags") or {}
+        for key, value in tags.items():
+            if str(key).strip().lower() in {"title", "tit2", "inam"}:
+                title = str(value or "").strip()
+                if title:
+                    return title
+    except (OSError, ValueError, TypeError, json.JSONDecodeError, subprocess.TimeoutExpired):
+        pass
+    return ""
+
+
+def resolve_singing_song_name(requested_name, source_name, source_path=None):
+    """Resolve a stable song title without guessing artist/title order."""
+    requested = sanitize_filename_part(strip_audio_extension(requested_name), "")
+    if requested:
+        return requested
+
+    if source_path and os.path.splitext(source_path)[1].lower() == ".ncm":
+        try:
+            ncm_title = inspect_ncm(source_path).get("title", "")
+            ncm_title = sanitize_filename_part(strip_audio_extension(ncm_title), "")
+            if ncm_title:
+                return ncm_title
+        except NCMError:
+            pass
+
+    metadata_title = sanitize_filename_part(strip_audio_extension(_probe_audio_title(source_path)), "") if source_path else ""
+    if metadata_title:
+        return metadata_title
+
+    return sanitize_filename_part(strip_audio_extension(file_stem(source_name)), "未命名歌曲")
+
+
+def build_singing_filename(song_name, voice_name, source_name=""):
+    """Build the user-facing WAV name; internal storage remains task-id based."""
+    song_part = sanitize_filename_part(strip_audio_extension(song_name), "")
+    if not song_part:
+        song_part = sanitize_filename_part(strip_audio_extension(file_stem(source_name)), "未命名歌曲")
+    voice_part = sanitize_filename_part(voice_name, "克隆音色")
+    return f"{song_part} - {voice_part}.wav"
 
 
 def resolve_output_base_name(requested_name, ai_filename):
@@ -524,6 +627,27 @@ def index():
 @app.route("/tts")
 def tts_page():
     return send_from_directory(STATIC_DIR, "tts.html")
+
+
+@app.route("/singing")
+def singing_page():
+    response = send_from_directory(STATIC_DIR, "singing.html")
+    # This page contains the UI and inline script for the singing workflow.
+    # Avoid keeping an older version in the browser after a local update.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
+@app.route("/audio-converter")
+@app.route("/ncm-converter")
+def audio_converter_page():
+    response = send_from_directory(STATIC_DIR, "audio_converter.html")
+    # The converter page is part of the local desktop workflow and should pick
+    # up HTML/JS changes immediately after a development restart.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @app.route("/voice_clip_editor.js")
@@ -996,7 +1120,13 @@ def generate_manuscript():
 def get_status(task_id):
     if task_id not in tasks:
         return jsonify({"error": "任务不存在"}), 404
-    return jsonify(tasks[task_id])
+    # Internal task fields may contain local filesystem paths used only by
+    # download routes.  Keep those out of the browser-facing status payload.
+    public_task = {
+        key: value for key, value in tasks[task_id].items()
+        if not key.startswith("_")
+    }
+    return jsonify(public_task)
 
 
 @app.route("/api/cancel/<task_id>", methods=["POST"])
@@ -1071,7 +1201,7 @@ def download_file(task_id=None, variant=None):
 
 
 # 支持 Range 的视频/文件流式响应（前端 <video> 拖动进度需要）
-def _ranged_file_response(path: str, as_attachment: bool = False):
+def _ranged_file_response(path: str, as_attachment: bool = False, download_name: str = ""):
     """以支持 HTTP Range 的方式流式返回文件（用于浏览器内预览视频/下载）。"""
     if not os.path.isfile(path):
         return jsonify({"error": "文件不存在"}), 404
@@ -1079,8 +1209,14 @@ def _ranged_file_response(path: str, as_attachment: bool = False):
     mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
     range_hdr = request.headers.get("Range", "")
     if not range_hdr:
-        resp = send_file(path, mimetype=mime, as_attachment=as_attachment,
-                         conditional=True)
+        send_kwargs = {
+            "mimetype": mime,
+            "as_attachment": as_attachment,
+            "conditional": True,
+        }
+        if as_attachment and download_name:
+            send_kwargs["download_name"] = os.path.basename(download_name)
+        resp = send_file(path, **send_kwargs)
         return resp
 
     # 解析 Range: bytes=start-end
@@ -1111,11 +1247,295 @@ def _ranged_file_response(path: str, as_attachment: bool = False):
     resp.headers.set("Content-Length", str(length))
     if as_attachment:
         from urllib.parse import quote
+        safe_download_name = os.path.basename(download_name or path)
         resp.headers.set(
             "Content-Disposition",
-            f"attachment; filename*=UTF-8''{quote(os.path.basename(path))}",
+            f"attachment; filename*=UTF-8''{quote(safe_download_name)}",
         )
     return resp
+
+
+# ===================== NCM 音频转换 =====================
+
+def _audio_converter_output_filename(title, source_name, output_format, used_names):
+    """Choose a stable title-based name and avoid same-batch collisions."""
+    base = sanitize_filename_part(
+        strip_audio_extension(title) or file_stem(source_name),
+        "未命名歌曲",
+    )
+    extension = str(output_format or "wav").lower().lstrip(".")
+    candidate = f"{base}.{extension}"
+    counter = 2
+    while candidate.casefold() in used_names:
+        candidate = f"{base} ({counter}).{extension}"
+        counter += 1
+    used_names.add(candidate.casefold())
+    return candidate
+
+
+def _save_ncm_converter_files():
+    """Save a bounded batch of NCM files into a task-owned temp directory."""
+    uploaded = request.files.getlist("files") or request.files.getlist("file")
+    uploaded = [item for item in uploaded if item and item.filename]
+    if not uploaded:
+        return None, None, "请选择至少一个 NCM 文件"
+    if len(uploaded) > AUDIO_CONVERTER_MAX_FILES:
+        return None, None, f"一次最多转换 {AUDIO_CONVERTER_MAX_FILES} 个 NCM 文件"
+
+    total_size = 0
+    temp_dir = tempfile.mkdtemp(prefix="ncm_converter_", dir=UPLOAD_FOLDER)
+    items = []
+    try:
+        for index, file in enumerate(uploaded):
+            source_name = os.path.basename(file.filename or "")
+            extension = os.path.splitext(source_name)[1].lower()
+            if extension != ".ncm":
+                raise ValueError(f"{source_name} 不是 NCM 文件")
+            file.seek(0, os.SEEK_END)
+            size = file.tell()
+            file.seek(0)
+            if size <= 0:
+                raise ValueError(f"{source_name} 文件为空")
+            if size > NCM_MAX_UPLOAD_BYTES:
+                raise ValueError(
+                    f"{source_name} 超过 {NCM_MAX_UPLOAD_BYTES // (1024 * 1024)}MB 限制"
+                )
+            total_size += size
+            if total_size > AUDIO_CONVERTER_MAX_TOTAL_BYTES:
+                raise ValueError(
+                    f"本次文件总大小不能超过 {AUDIO_CONVERTER_MAX_TOTAL_BYTES // (1024 * 1024)}MB"
+                )
+            source_path = os.path.join(temp_dir, f"source_{index:03d}.ncm")
+            file.save(source_path)
+            items.append({
+                "source_path": source_path,
+                "source_name": source_name,
+                "size_bytes": size,
+            })
+    except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return None, None, str(exc)
+    return temp_dir, items, ""
+
+
+def _audio_converter_worker(task_id, temp_dir, source_items, output_format):
+    """Convert a batch sequentially and expose progress through ``tasks``."""
+    task = tasks.get(task_id)
+    if not task:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return
+
+    output_dir = os.path.join(get_output_folder(), "audio_converter", task_id)
+    os.makedirs(output_dir, exist_ok=True)
+    used_names = set()
+    public_items = []
+    output_files = []
+    total = max(1, len(source_items))
+    try:
+        task["status"] = "processing"
+        update_task_progress(
+            task_id, 1, f"准备转换 {len(source_items)} 个 NCM 文件...",
+            stage="prepare", log=True, indeterminate=False,
+        )
+        for index, item in enumerate(source_items):
+            assert_not_cancelled(task_id)
+            start_progress = index * 100.0 / total
+            end_progress = (index + 1) * 100.0 / total
+            update_task_progress(
+                task_id, start_progress, f"正在读取第 {index + 1}/{total} 个文件...",
+                stage="inspect", log=True, indeterminate=True,
+            )
+            public_item = {
+                "index": index,
+                "source_name": item["source_name"],
+                "status": "processing",
+                "filename": "",
+                "title": "",
+                "artist": "",
+                "album": "",
+                "error": "",
+            }
+            output_path = ""
+            try:
+                info = inspect_ncm(item["source_path"])
+                public_item["title"] = info.get("title", "")
+                public_item["artist"] = info.get("artist", "")
+                public_item["album"] = info.get("album", "")
+                filename = _audio_converter_output_filename(
+                    public_item["title"], item["source_name"], output_format, used_names,
+                )
+                output_path = os.path.join(output_dir, filename)
+
+                def on_progress(progress, message, _start=start_progress, _end=end_progress, _index=index):
+                    inner = max(0.0, min(100.0, float(progress or 0.0)))
+                    overall = _start + (_end - _start) * inner / 100.0
+                    stage = "decode" if inner < 76 else "transcode"
+                    update_task_progress(
+                        task_id, overall,
+                        f"{_index + 1}/{total} · {message}",
+                        stage=stage, log=False, indeterminate=stage == "transcode",
+                    )
+
+                converted = convert_ncm(
+                    item["source_path"],
+                    output_path,
+                    output_format=output_format,
+                    progress_callback=on_progress,
+                )
+                public_item.update({
+                    "status": "completed",
+                    "filename": filename,
+                    "download_url": f"/api/audio-converter/file/{task_id}/{index}?download=1",
+                    "audio_url": f"/api/audio-converter/file/{task_id}/{index}",
+                    "source_format": converted.get("source_format", ""),
+                })
+            except (NCMError, OSError, ValueError) as exc:
+                public_item["status"] = "failed"
+                public_item["error"] = str(exc) or "转换失败"
+            public_items.append(public_item)
+            output_files.append(
+                output_path
+                if public_item["status"] == "completed" and os.path.isfile(output_path)
+                else None
+            )
+            completed = index + 1
+            update_task_progress(
+                task_id, completed * 100.0 / total,
+                f"已完成 {completed}/{total} 个文件",
+                stage="file_completed", log=True, indeterminate=False,
+            )
+
+        successful = [item for item in public_items if item["status"] == "completed"]
+        if not successful:
+            detail = next(
+                (item.get("error") for item in public_items if item.get("error")),
+                "没有文件转换成功",
+            )
+            task["status"] = "failed"
+            task["result"] = {"format": output_format, "items": public_items}
+            update_task_progress(task_id, 100, f"NCM 转换失败：{detail}", stage="failed", log=True)
+            return
+
+        archive_path = ""
+        if len(successful) > 1:
+            archive_name = f"NCM转换结果_{time.strftime('%Y%m%d_%H%M%S')}.zip"
+            archive_path = os.path.join(output_dir, archive_name)
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for item, file_path in zip(public_items, output_files):
+                    if item.get("status") == "completed" and file_path:
+                        archive.write(file_path, arcname=item["filename"])
+
+        task["result"] = {
+            "format": output_format,
+            "items": public_items,
+            "success_count": len(successful),
+            "failed_count": len(public_items) - len(successful),
+            "zip_filename": os.path.basename(archive_path) if archive_path else "",
+            "zip_url": f"/api/audio-converter/archive/{task_id}?download=1" if archive_path else "",
+        }
+        task["_output_files"] = output_files
+        task["_archive_path"] = archive_path
+        task["status"] = "completed"
+        summary = f"NCM 转换完成：{len(successful)}/{len(public_items)} 个文件"
+        update_task_progress(task_id, 100, summary, stage="completed", log=True, indeterminate=False)
+    except Exception as exc:
+        if task.get("status") != "cancelled":
+            task["status"] = "failed"
+            update_task_progress(
+                task_id, task.get("progress", 0), f"NCM 转换失败：{exc}",
+                stage="failed", log=True, indeterminate=False,
+            )
+        print(f"NCM 转换任务失败：{exc}")
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@app.route("/api/audio-converter/status", methods=["GET"])
+def audio_converter_status():
+    payload = dict(ncm_converter_status())
+    payload["max_files"] = AUDIO_CONVERTER_MAX_FILES
+    payload["max_total_mb"] = AUDIO_CONVERTER_MAX_TOTAL_BYTES // (1024 * 1024)
+    return jsonify(payload)
+
+
+@app.route("/api/audio-converter/convert", methods=["POST"])
+def audio_converter_convert():
+    readiness = ncm_converter_status()
+    if not readiness.get("ready"):
+        return jsonify({"error": readiness.get("reason") or "NCM 转换器未就绪", "engine": readiness}), 503
+    if not _parse_singing_bool(request.form.get("consent")):
+        return jsonify({"error": "请确认仅转换你拥有使用权的本地文件"}), 400
+    output_format = (request.form.get("format") or "wav").strip().lower().lstrip(".")
+    if output_format not in NCM_OUTPUT_FORMATS:
+        return jsonify({"error": "输出格式仅支持 WAV 或 MP3"}), 400
+    temp_dir, source_items, reason = _save_ncm_converter_files()
+    if reason:
+        return jsonify({"error": reason}), 400
+
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {
+        "type": "ncm_conversion",
+        "status": "pending",
+        "progress": 0,
+        "message": "NCM 转换任务排队中...",
+        "stage": "queued",
+        "indeterminate": False,
+        "result": None,
+        "format": output_format,
+        "file_count": len(source_items),
+        "cancel_requested": False,
+        "_output_files": [],
+        "_archive_path": "",
+        "logs": [{
+            "time": time.strftime("%H:%M:%S"),
+            "message": "NCM 转换任务已进入队列",
+            "stage": "queued",
+        }],
+    }
+    threading.Thread(
+        target=_audio_converter_worker,
+        args=(task_id, temp_dir, source_items, output_format),
+        daemon=True,
+    ).start()
+    return jsonify({
+        "task_id": task_id,
+        "format": output_format,
+        "file_count": len(source_items),
+    }), 202
+
+
+@app.route("/api/audio-converter/file/<task_id>/<int:index>", methods=["GET"])
+def audio_converter_file(task_id, index):
+    if not re.fullmatch(r"[0-9a-f-]{36}", str(task_id or "")):
+        return jsonify({"error": "文件不存在"}), 404
+    task = tasks.get(str(task_id)) or {}
+    output_files = task.get("_output_files") or []
+    if index < 0 or index >= len(output_files) or not output_files[index]:
+        return jsonify({"error": "文件不存在或任务尚未完成"}), 404
+    path = output_files[index]
+    result_items = (task.get("result") or {}).get("items") or []
+    result_item = next((item for item in result_items if item.get("index") == index), {})
+    return _ranged_file_response(
+        path,
+        as_attachment=request.args.get("download") == "1",
+        download_name=result_item.get("filename") or os.path.basename(path),
+    )
+
+
+@app.route("/api/audio-converter/archive/<task_id>", methods=["GET"])
+def audio_converter_archive(task_id):
+    if not re.fullmatch(r"[0-9a-f-]{36}", str(task_id or "")):
+        return jsonify({"error": "文件不存在"}), 404
+    task = tasks.get(str(task_id)) or {}
+    path = task.get("_archive_path") or ""
+    if not path or not os.path.isfile(path):
+        return jsonify({"error": "压缩包不存在或任务尚未完成"}), 404
+    return send_file(
+        path,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=os.path.basename(path),
+    )
 
 
 # ===================== 背景音乐管理 =====================
@@ -1261,6 +1681,18 @@ def list_voices():
             ),
             "availability_reason": (
                 "" if (v.type == "cloud_parallel" or cosy3_ready) else cosy3_reason
+            ),
+            # Singing VC only needs the persisted reference clip; it does not
+            # need the CosyVoice TTS worker to be enabled for this request.
+            "singing_available": (
+                v.type == "cosyvoice3"
+                and v.status == "ready"
+                and bool(getattr(v, "ref_audio", ""))
+            ),
+            "language": getattr(v, "language", "") or "",
+            "language_label": (
+                COSYVOICE_LANGUAGE_LABELS.get(getattr(v, "language", ""), "")
+                if v.type == "cosyvoice3" else ""
             ),
             "edge_voice": getattr(v, "edge_voice", "") or "",
             "gender": getattr(v, "gender", "") or "",
@@ -1658,6 +2090,396 @@ def tts_file(rel):
     return send_file(target, as_attachment=False)
 
 
+# ===================== AI 唱歌 / Singing VC =====================
+
+def _parse_singing_bool(value):
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _parse_singing_int(value, default, minimum, maximum):
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, min(maximum, number))
+
+
+def _resolve_singing_voice_reference(voice_id):
+    """Resolve only a registered local clone reference for Singing VC."""
+    VOICE_REGISTRY.reload()
+    meta = VOICE_REGISTRY.get_voice(voice_id or "")
+    if meta is None:
+        return None, None, "所选音色不存在，请先在 TTS 页面创建克隆音色"
+    if getattr(meta, "type", "") != "cosyvoice3":
+        return None, None, "AI 唱歌目前只支持 CosyVoice3 本地克隆音色"
+    if getattr(meta, "status", "ready") != "ready":
+        return None, None, "所选克隆音色还没有准备好，请稍后重试"
+    rel = getattr(meta, "ref_audio", "") or ""
+    if not rel:
+        return None, None, "所选克隆音色没有可用的参考音频"
+
+    voice_root = os.path.realpath(VOICE_REGISTRY.voice_dir)
+    candidate = os.path.realpath(rel if os.path.isabs(rel) else os.path.join(voice_root, rel))
+    allowed_roots = [
+        voice_root,
+        os.path.realpath(os.path.join(PROJECT_ROOT, "test_inputs")),
+        os.path.realpath(os.path.join(PROJECT_ROOT, "audio_assets")),
+        os.path.realpath(os.path.join(PROJECT_ROOT, "training_assets")),
+    ]
+    try:
+        inside = any(os.path.commonpath([root, candidate]) == root for root in allowed_roots)
+    except ValueError:
+        inside = False
+    if not inside:
+        return None, None, "克隆音色参考音频路径无效"
+    if not os.path.isfile(candidate):
+        return None, None, "克隆音色参考音频不存在，请重新创建该音色"
+    return meta, candidate, ""
+
+
+def _save_singing_source(source_label="导唱"):
+    """Save and validate a singing source in a task-owned temporary directory."""
+    file = request.files.get("source") or request.files.get("file")
+    if not file or not file.filename:
+        return None, None, None, None, f"请选择{source_label}音频"
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in (".ncm", ".wav", ".mp3"):
+        return None, None, None, None, f"仅支持 NCM、WAV 或 MP3 {source_label}文件"
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size <= 0:
+        return None, None, None, None, f"{source_label}文件为空"
+    if size > MAX_UPLOAD_BYTES:
+        return None, None, None, None, f"{source_label}文件不能超过 100MB"
+
+    temp_dir = tempfile.mkdtemp(prefix="singing_source_", dir=UPLOAD_FOLDER)
+    source_path = os.path.join(temp_dir, "source" + ext)
+    try:
+        file.save(source_path)
+        if ext == ".ncm":
+            validation = {
+                "ok": True,
+                "container": "ncm",
+                "size_mb": round(size / (1024 * 1024), 1),
+                "duration_sec": 0.0,
+            }
+        else:
+            validation = validate_singing_source(source_path)
+        if not validation.get("ok"):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return None, None, None, None, validation.get("reason") or f"{source_label}文件校验失败"
+        return temp_dir, source_path, validation, os.path.basename(file.filename), ""
+    except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return None, None, None, None, f"保存{source_label}失败：{exc}"
+
+
+def _singing_generate_worker(
+    task_id,
+    temp_dir,
+    source_path,
+    target_path,
+    voice_id,
+    source_name,
+    song_name,
+    source_mode,
+    semi_tone_shift,
+    diffusion_steps,
+    auto_f0_adjust,
+):
+    """Run one Singing VC job while keeping GPU work serialized."""
+    generation_lock.acquire()
+    gpu_acquired = False
+    work_dir = None
+    try:
+        task = tasks.get(task_id)
+        if not task:
+            return
+        task["status"] = "processing"
+        update_task_progress(
+            task_id, 8, "准备歌声转换引擎...", stage="prepare", log=True,
+            indeterminate=True,
+        )
+        if task.get("cancel_requested"):
+            task["status"] = "cancelled"
+            update_task_progress(task_id, 0, "任务已取消", stage="cancelled", log=True)
+            return
+
+        update_task_progress(
+            task_id, 18, "等待 GPU 资源（与本地语音克隆互斥）...",
+            stage="prepare", log=True, indeterminate=True,
+        )
+        gpu_acquired = gpu_arbiter.acquire(block=True, timeout=1800)
+        if not gpu_acquired:
+            raise SingingVCError("GPU 正忙，请稍后重试")
+
+        work_dir = os.path.join(get_output_folder(), "singing", f"{task_id}_work")
+        os.makedirs(work_dir, exist_ok=True)
+
+        converted_source = source_path
+        if os.path.splitext(source_path)[1].lower() == ".ncm":
+            update_task_progress(
+                task_id, 24, "正在本机解码 NCM 音频...", stage="decode_ncm",
+                log=True, indeterminate=False,
+            )
+
+            def on_ncm_progress(progress, message):
+                update_task_progress(
+                    task_id, 24 + min(6.0, max(0.0, float(progress or 0.0)) * 0.06),
+                    message, stage="decode_ncm", log=False, indeterminate=False,
+                )
+
+            decoded_source = os.path.join(work_dir, "ncm_source.wav")
+            convert_ncm(
+                source_path,
+                decoded_source,
+                output_format="wav",
+                progress_callback=on_ncm_progress,
+            )
+            decoded_validation = validate_singing_source(decoded_source)
+            if not decoded_validation.get("ok"):
+                raise SingingVCError(decoded_validation.get("reason") or "NCM 解码后的音频无法使用")
+            tasks[task_id]["source_duration_sec"] = decoded_validation.get("duration_sec", 0.0)
+            converted_source = decoded_source
+            update_task_progress(
+                task_id, 30, "NCM 解码完成，准备歌声转换...", stage="decode_ncm",
+                log=True, indeterminate=False,
+            )
+
+        separation = None
+        if source_mode == "original":
+            update_task_progress(
+                task_id, 30, "正在从原曲中分离人声与伴奏；首次运行可能需要下载分离模型...",
+                stage="separate", log=True, indeterminate=True,
+            )
+
+            def on_separation_log(_line):
+                update_task_progress(
+                    task_id, 36, "正在分离原曲人声与伴奏...", stage="separate",
+                    log=False, indeterminate=True,
+                )
+
+            separation = separate_song(
+                converted_source,
+                os.path.join(work_dir, "separation"),
+                progress_callback=on_separation_log,
+            )
+            converted_source = separation["vocals_path"]
+            update_task_progress(
+                task_id, 48, "人声分离完成，正在转换目标音色...",
+                stage="convert", log=True, indeterminate=True,
+            )
+        else:
+            update_task_progress(
+                task_id, 30, "正在加载歌声转换模型；首次运行可能需要下载模型...",
+                stage="convert", log=True, indeterminate=True,
+            )
+
+        def on_engine_log(_line):
+            update_task_progress(
+                task_id, 82, "正在完成歌声音色转换...", stage="convert",
+                log=False, indeterminate=True,
+            )
+
+        converted = run_conversion(
+            converted_source,
+            target_path,
+            work_dir,
+            semi_tone_shift=semi_tone_shift,
+            diffusion_steps=diffusion_steps,
+            auto_f0_adjust=auto_f0_adjust,
+            progress_callback=on_engine_log,
+        )
+
+        final_audio = converted["path"]
+        final_duration = converted.get("duration_sec", 0.0)
+        if source_mode == "original":
+            update_task_progress(
+                task_id, 92, "正在把转换后的人声混回原伴奏...",
+                stage="mix", log=True, indeterminate=True,
+            )
+            mixed = mix_audio(
+                converted["path"],
+                separation["accompaniment_path"],
+                os.path.join(work_dir, "mixed.wav"),
+            )
+            final_audio = mixed["path"]
+            final_duration = mixed.get("duration_sec", final_duration)
+
+        update_task_progress(
+            task_id, 96, "正在整理 WAV 输出...", stage="finalize", log=True,
+            indeterminate=True,
+        )
+        output_dir = os.path.join(get_output_folder(), "singing")
+        os.makedirs(output_dir, exist_ok=True)
+        final_path = os.path.join(output_dir, f"{task_id}.wav")
+        shutil.copyfile(final_audio, final_path)
+        voice_name = task.get("voice_name") or voice_id
+        result = {
+            "audio_url": f"/api/singing/file/{task_id}",
+            "download_url": f"/api/singing/file/{task_id}?download=1",
+            "filename": build_singing_filename(song_name, voice_name, source_name),
+            "song_name": song_name,
+            "duration_sec": final_duration,
+            "source_name": source_name,
+            "source_mode": source_mode,
+            "mode_label": "原曲模式" if source_mode == "original" else "已分离人声",
+            "voice_id": voice_id,
+            "semi_tone_shift": semi_tone_shift,
+            "diffusion_steps": diffusion_steps,
+        }
+        task["result"] = result
+        task["status"] = "completed"
+        update_task_progress(
+            task_id, 100, "AI 唱歌转换完成", stage="completed", log=True,
+            indeterminate=False,
+        )
+    except Exception as exc:
+        task = tasks.get(task_id)
+        if task and task.get("status") != "cancelled":
+            task["status"] = "failed"
+            update_task_progress(
+                task_id, task.get("progress", 0), f"AI 唱歌失败：{exc}",
+                stage="failed", log=True, indeterminate=False,
+            )
+        print(f"AI 唱歌任务失败：{exc}")
+    finally:
+        if gpu_acquired:
+            gpu_arbiter.release()
+        if work_dir:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        generation_lock.release()
+
+
+@app.route("/api/singing/status", methods=["GET"])
+def singing_status():
+    engine = singing_vc_status()
+    separation = singing_separation_status()
+    ncm = ncm_converter_status()
+    payload = dict(engine)
+    payload["separation"] = separation
+    payload["ncm"] = ncm
+    payload["ncm_ready"] = bool(ncm.get("ready"))
+    payload["allowed_extensions"] = sorted(
+        set(payload.get("allowed_extensions") or []) | {".ncm"}
+    )
+    payload["original_mode_ready"] = bool(engine.get("ready") and separation.get("ready"))
+    return jsonify(payload)
+
+
+@app.route("/api/singing/convert", methods=["POST"])
+def singing_convert():
+    """Queue Singing VC: source audio + registered local clone voice."""
+    engine = singing_vc_status()
+    if not engine.get("ready"):
+        return jsonify({"error": engine.get("reason") or "AI 唱歌引擎未就绪", "engine": engine}), 503
+
+    source_mode = (request.form.get("source_mode") or request.form.get("mode") or "vocal").strip().lower()
+    if source_mode not in {"original", "vocal"}:
+        return jsonify({"error": "source_mode 只支持 original 或 vocal"}), 400
+    separation = None
+    if source_mode == "original":
+        separation = singing_separation_status()
+        if not separation.get("ready"):
+            return jsonify({
+                "error": separation.get("reason") or "原曲模式需要先配置人声分离环境",
+                "engine": engine,
+                "separation": separation,
+            }), 503
+
+    source_file = request.files.get("source") or request.files.get("file")
+    source_ext = os.path.splitext((source_file.filename if source_file else "") or "")[1].lower()
+    if source_ext == ".ncm":
+        ncm_ready = ncm_converter_status()
+        if not ncm_ready.get("ready"):
+            return jsonify({
+                "error": ncm_ready.get("reason") or "NCM 解码器未就绪",
+                "ncm": ncm_ready,
+            }), 503
+
+    if not _parse_singing_bool(request.form.get("consent")):
+        return jsonify({"error": "请确认你拥有导唱与目标声音的使用授权"}), 400
+
+    voice_id = (request.form.get("voice_id") or request.form.get("voice") or "").strip()
+    requested_song_name = (request.form.get("song_name") or "").strip()
+    meta, target_path, reason = _resolve_singing_voice_reference(voice_id)
+    if reason:
+        return jsonify({"error": reason}), 400
+
+    source_label = "原曲" if source_mode == "original" else "导唱"
+    temp_dir, source_path, validation, source_name, source_reason = _save_singing_source(source_label)
+    if source_reason:
+        return jsonify({"error": source_reason}), 400
+    song_name = resolve_singing_song_name(requested_song_name, source_name, source_path)
+
+    semi_tone_shift = _parse_singing_int(
+        request.form.get("semi_tone_shift", 0), 0,
+        MIN_SEMITONE_SHIFT, MAX_SEMITONE_SHIFT,
+    )
+    diffusion_steps = _parse_singing_int(
+        request.form.get("diffusion_steps", DEFAULT_DIFFUSION_STEPS),
+        DEFAULT_DIFFUSION_STEPS, 4, 80,
+    )
+    auto_f0_adjust = _parse_singing_bool(request.form.get("auto_f0_adjust"))
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {
+        "type": "singing_vc",
+        "status": "pending",
+        "progress": 0,
+        "message": "排队中...",
+        "stage": "queued",
+        "indeterminate": False,
+        "result": None,
+        "voice_id": voice_id,
+        "voice_name": getattr(meta, "name", voice_id),
+        "source_name": source_name,
+        "song_name": song_name,
+        "source_mode": source_mode,
+        "source_duration_sec": validation.get("duration_sec", 0.0),
+        "semi_tone_shift": semi_tone_shift,
+        "diffusion_steps": diffusion_steps,
+        "auto_f0_adjust": auto_f0_adjust,
+        "logs": [{
+            "time": time.strftime("%H:%M:%S"),
+            "message": "AI 唱歌任务已进入队列",
+            "stage": "queued",
+        }],
+    }
+    threading.Thread(
+        target=_singing_generate_worker,
+        args=(
+            task_id, temp_dir, source_path, target_path, voice_id, source_name,
+            song_name, source_mode, semi_tone_shift, diffusion_steps, auto_f0_adjust,
+        ),
+        daemon=True,
+    ).start()
+    return jsonify({
+        "task_id": task_id,
+        "voice_id": voice_id,
+        "voice_name": getattr(meta, "name", voice_id),
+        "song_name": song_name,
+        "source_mode": source_mode,
+        "source_duration_sec": validation.get("duration_sec", 0.0),
+    }), 202
+
+
+@app.route("/api/singing/file/<task_id>", methods=["GET"])
+def singing_file(task_id):
+    if not re.fullmatch(r"[0-9a-f-]{36}", str(task_id or "")):
+        return jsonify({"error": "文件不存在"}), 404
+    path = os.path.join(get_output_folder(), "singing", f"{task_id}.wav")
+    task = tasks.get(str(task_id)) or {}
+    result = task.get("result") or {}
+    download_name = result.get("filename") or f"ai_singing_{str(task_id)[:8]}.wav"
+    return _ranged_file_response(
+        path,
+        as_attachment=request.args.get("download") == "1",
+        download_name=download_name,
+    )
+
+
 @app.route("/api/voices/upload", methods=["POST"])
 def upload_voice():
     if "file" not in request.files:
@@ -1791,6 +2613,9 @@ def preview_voice_reference():
 @app.route("/api/voices/transcribe", methods=["POST"])
 def transcribe_voice_reference():
     """Prepare the same reference clip used by cloning, then transcribe it locally."""
+    language = normalize_voice_language(request.form.get("language"))
+    if language is None:
+        return jsonify({"ok": False, "reason": "不支持的参考音频语言"}), 400
     options, reason = _voice_clip_options(request.form)
     if reason:
         return jsonify({"ok": False, "reason": reason}), 400
@@ -1808,7 +2633,7 @@ def transcribe_voice_reference():
         )
         if not prepared["ok"]:
             return jsonify(prepared), 400
-        recognized = transcribe_audio(prepared_path)
+        recognized = transcribe_audio(prepared_path, language=language)
         return jsonify({
             "ok": True,
             "text": recognized["text"],
@@ -1831,6 +2656,7 @@ def create_voice():
     file = request.files.get("file")
     name = (request.form.get("name") or "").strip()
     ref_text = (request.form.get("ref_text") or "").strip()
+    language = normalize_voice_language(request.form.get("language"))
     consent = (request.form.get("consent") or "").lower() in ("1", "true", "yes", "on")
     clip_options, clip_reason = _voice_clip_options(request.form)
 
@@ -1842,6 +2668,8 @@ def create_voice():
         return jsonify({"ok": False, "reason": "音色名称不能超过 30 个字符"}), 400
     if len(ref_text) > 500:
         return jsonify({"ok": False, "reason": "参考音频逐字稿不能超过 500 个字符"}), 400
+    if language is None:
+        return jsonify({"ok": False, "reason": "不支持的参考音频语言"}), 400
     if not consent:
         return jsonify({"ok": False, "reason": "请确认已获得声音使用授权"}), 400
     if clip_reason:
@@ -1891,15 +2719,21 @@ def create_voice():
             shutil.rmtree(voice_dir, ignore_errors=True)
             return jsonify(prepared), 400
 
-        transcription = {"auto_generated": False, "text": ref_text, "language": "zh"}
+        stored_language = language
+        transcription = {"auto_generated": False, "text": ref_text, "language": language}
         if len(ref_text) < 2:
             try:
-                recognized = transcribe_audio(wav_path)
+                recognized = transcribe_audio(wav_path, language=language)
                 ref_text = recognized["text"]
+                detected_language = normalize_voice_language(
+                    recognized.get("language"), default="auto"
+                ) or "auto"
+                if language == "auto":
+                    stored_language = detected_language
                 transcription = {
                     "auto_generated": True,
                     "text": ref_text,
-                    "language": recognized.get("language") or "",
+                    "language": recognized.get("language") or stored_language,
                 }
             except Exception as exc:
                 shutil.rmtree(voice_dir, ignore_errors=True)
@@ -1914,7 +2748,7 @@ def create_voice():
             name=name,
             ref_audio_rel=ref_audio_rel,
             duration_sec=prepared["duration_sec"],
-            language="zh",
+            language=stored_language,
             ref_text=ref_text,
             voice_id=voice_id,
             voice_type="cosyvoice3",
@@ -1927,6 +2761,8 @@ def create_voice():
                 "type": "cosyvoice3",
                 "status": "ready",
                 "deletable": True,
+                "language": stored_language,
+                "language_label": COSYVOICE_LANGUAGE_LABELS.get(stored_language, ""),
             },
             "processing": {
                 "source_duration_sec": prepared["source_duration_sec"],

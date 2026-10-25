@@ -70,6 +70,10 @@ bin/
 GPT-SoVITS/
 venv_gptsovits/
 
+# Seed-VC / Hugging Face 模型缓存（首次推理自动下载，体积大）
+checkpoints/
+seed-vc/
+
 # 构建变体标记（gpu/cpu），每次构建由 build_exes.py 重新写入，属临时状态
 variant.txt
 

@@ -11,13 +11,15 @@
 - **视频合成**：MoviePy + FFmpeg（打包态自带，源码运行需单独安装或放到 `bin/`），支持字幕、配音、进度回调
 - **企业方案链接 → 智能体生成 Word → 复用文档转视频**（命令行入口）
 - **桌面启动器**：PyInstaller 打包为 Windows exe（含自带 FFmpeg 与 Python 运行时）
+- **AI 唱歌**：支持上传完整原曲自动分离人声并保留伴奏，也支持直接上传已分离导唱，使用已登记的本地克隆音色进行 Singing Voice Conversion；下载结果按“歌曲名称 - 音色名称.wav”命名（可选 Seed-VC + Demucs，见 [`docs/singing_voice.md`](docs/singing_voice.md)）
+- **NCM 音频转换**：网页内本机解码网易云音乐 `.ncm` 文件，可批量输出 WAV 或 320 kbps MP3；AI 唱歌原曲模式也可直接接收 NCM（见 [`docs/ncm_converter.md`](docs/ncm_converter.md)）
 
 ## 系统架构
 
 主进程（Flask Web 服务）与重型 TTS 推理（CosyVoice3 Worker）**完全隔离在两个 Python 虚拟环境**里，
 通过标准输入/输出上的 JSONL 协议通信（`src/tts_worker_protocol.py`）。这样主进程无需装载 torch，也便于分别重建环境。
 
-完整说明见 [`项目说明书.md`](项目说明书.md) 与 [`docs/`](docs/)。
+完整说明见 [`项目说明书.md`](项目说明书.md)、[`docs/`](docs/) 与 [`docs/singing_voice.md`](docs/singing_voice.md)。
 
 ## ⚠️ 仓库说明（重要）
 
@@ -76,7 +78,8 @@ TOOLBOX/
 - **前端**：HTML5 / CSS3 / 原生 JavaScript（无框架）
 - **后端**：Python 3.13 + Flask + flask-cors
 - **TTS**：edge-tts、CosyVoice3（本地 GPU）
-- **媒体**：MoviePy、FFmpeg、PyAV、faster-whisper
+- **歌声转换**：Seed-VC + Demucs（可选，独立 Python 环境；分别负责音色转换与原曲人声分离）
+- **媒体**：MoviePy、FFmpeg、PyAV、faster-whisper、cryptography（NCM 本地解码）
 - **文档**：PyMuPDF、python-docx、PowerPoint COM / LibreOffice
 
 ## 许可证

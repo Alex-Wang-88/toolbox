@@ -15,9 +15,10 @@ def emit(payload):
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         raise RuntimeError("转写参数不完整")
-    audio_path, model_path = sys.argv[1:]
+    audio_path, model_path = sys.argv[1:3]
+    language = sys.argv[3] if len(sys.argv) == 4 else None
     from faster_whisper import WhisperModel
 
     model = WhisperModel(
@@ -31,6 +32,7 @@ def main():
         beam_size=5,
         vad_filter=True,
         condition_on_previous_text=False,
+        language=language,
     )
     text = "".join(segment.text for segment in segments).strip()
     emit({

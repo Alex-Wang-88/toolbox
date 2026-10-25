@@ -378,16 +378,23 @@ class MultiTtsWorkerClient:
         self._ensure_model_loaded()
 
         with _gpu_lock:
+            segment_payload = []
+            for s in miss_segments:
+                item = {
+                    "segment_id": s.get("segment_id", -1),
+                    "text": s.get("text", ""),
+                    "output_path": s.get("output_path", ""),
+                }
+                # Optional per-segment controls are forwarded for engines that
+                # support language/mode-specific synthesis. Existing callers
+                # remain unchanged because absent keys are simply omitted.
+                for key in ("mode", "instruction", "language", "language_code"):
+                    if key in s:
+                        item[key] = s.get(key)
+                segment_payload.append(item)
             params = {
                 "ref_audio_path": ref_audio_path,
-                "segments": [
-                    {
-                        "segment_id": s.get("segment_id", -1),
-                        "text": s.get("text", ""),
-                        "output_path": s.get("output_path", ""),
-                    }
-                    for s in miss_segments
-                ],
+                "segments": segment_payload,
                 "speed": float(speed),
                 "ref_text": ref_text,
             }

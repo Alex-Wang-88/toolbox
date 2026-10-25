@@ -54,7 +54,7 @@ fi
 # ---- 依赖自检 ----
 echo
 echo "[1/3] 检查 Python 依赖..."
-if ! python -c "import flask, flask_cors, requests, edge_tts, moviepy, pysrt" 2>/dev/null; then
+if ! python -c "import flask, flask_cors, requests, edge_tts, moviepy, pysrt, cryptography" 2>/dev/null; then
     echo "[INFO] 缺少依赖，正在根据 config/requirements.txt 安装..."
     python -m pip install -r config/requirements.txt
     echo "[OK] 依赖安装成功"

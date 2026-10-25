@@ -37,6 +37,13 @@ def _candidate_dirs():
         if meipass and meipass not in dirs:
             dirs.append(meipass)
 
+    # 源码运行时也优先使用项目随附的 bin/ffmpeg，避免 NCM/音频功能因
+    # 系统 PATH 未配置而退化到找不到 ffmpeg。不存在时继续走 PATH。
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bundled_dir = os.path.join(project_root, "bin", "ffmpeg")
+    if os.path.isdir(bundled_dir) and bundled_dir not in dirs:
+        dirs.append(bundled_dir)
+
     return dirs
 
 

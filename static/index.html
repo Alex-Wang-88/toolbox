@@ -289,6 +289,7 @@
             background: var(--panel); color: var(--text); padding: 9px 12px; font-size: 14px; outline: none;
             transition: border-color 0.18s ease, box-shadow 0.18s ease;
         }
+        select.text-input { cursor: pointer; }
         .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(43, 92, 255, 0.12); }
         .text-input:disabled { background: var(--soft); color: var(--muted); cursor: not-allowed; }
 
@@ -691,6 +692,582 @@
         @media (prefers-reduced-motion: reduce) {
             body, .theme-toggle, .theme-toggle::after, .theme-icon { transition: none; }
         }
+
+        /* ===== UI UX Pro Max visual system =====
+           Flat, calm and production-focused: teal for structure, orange for the
+           one decisive export action, and semantic tokens for both themes. */
+        :root {
+            --bg: #f3f8f7;
+            --panel: #ffffff;
+            --soft: #edf5f3;
+            --line: #d7e5e2;
+            --text: #123534;
+            --muted: #526a67;
+            --accent: #0d9488;
+            --accent-dark: #0f766e;
+            --accent-soft: #def3f0;
+            --accent-rgb: 13, 148, 136;
+            --focus-ring: rgba(13, 148, 136, .28);
+            --on-accent: #06211e;
+            --cta: #ea580c;
+            --cta-hover: #c2410c;
+            --on-cta: #2e1307;
+            --success: #15803d;
+            --success-soft: #eaf8ef;
+            --warning: #b45309;
+            --warning-soft: #fff7e8;
+            --danger: #c2413b;
+            --danger-soft: #fff0ee;
+            --shadow-sm: 0 1px 2px rgba(18, 53, 52, .05);
+            --shadow: 0 14px 32px rgba(18, 53, 52, .08);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --radius-pill: 999px;
+        }
+
+        html[data-theme="dark"] {
+            --bg: #071514;
+            --panel: #0e2220;
+            --soft: #132c29;
+            --line: #2a4a46;
+            --text: #ecfdf5;
+            --muted: #a1bfba;
+            --accent: #5bd6c8;
+            --accent-dark: #9be9df;
+            --accent-soft: #173f3a;
+            --accent-rgb: 91, 214, 200;
+            --focus-ring: rgba(91, 214, 200, .32);
+            --on-accent: #06211e;
+            --cta: #fb923c;
+            --cta-hover: #fdba74;
+            --on-cta: #2a1305;
+            --success: #6ee7a0;
+            --success-soft: #123625;
+            --warning: #fbbf24;
+            --warning-soft: #3a2a12;
+            --danger: #fb8b7d;
+            --danger-soft: #3b1d1b;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, .24);
+            --shadow: 0 16px 36px rgba(0, 0, 0, .24);
+        }
+
+        body {
+            padding: clamp(18px, 3vw, 36px);
+            background-image: none;
+            font-family: "Plus Jakarta Sans", "Noto Sans SC", "Source Han Sans CN", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+            line-height: 1.55;
+            letter-spacing: 0;
+        }
+
+        .app { max-width: 1280px; }
+
+        .mainnav {
+            top: 16px;
+            min-height: 64px;
+            margin-bottom: 28px;
+            padding: 10px 14px 10px 18px;
+            background: rgba(255, 255, 255, .92);
+            border-radius: 18px;
+            box-shadow: var(--shadow-sm);
+        }
+        .nav-brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 15px;
+            font-weight: 800;
+        }
+        .nav-brand::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            flex: 0 0 auto;
+            border-radius: 3px;
+            background: var(--accent);
+            box-shadow: 5px 5px 0 var(--cta);
+        }
+        .nav-links {
+            gap: 2px;
+            padding: 4px;
+            background: var(--soft);
+            border: 1px solid var(--line);
+        }
+        .nav-link {
+            min-height: 40px;
+            display: inline-flex;
+            align-items: center;
+            padding: 7px 17px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .nav-link.active {
+            color: var(--accent-dark);
+            box-shadow: 0 2px 8px rgba(var(--accent-rgb), .14);
+        }
+
+        .theme-toggle {
+            width: 64px;
+            height: 36px;
+            background: var(--soft);
+            color: var(--muted);
+            border-color: var(--line);
+            box-shadow: none;
+        }
+        .theme-toggle::after {
+            top: 4px;
+            left: 4px;
+            width: 26px;
+            height: 26px;
+            background: var(--panel);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, .12);
+        }
+        .theme-toggle:hover { box-shadow: 0 3px 10px rgba(var(--accent-rgb), .14); }
+        html[data-theme="dark"] body { background-image: none; }
+        html[data-theme="dark"] .mainnav { background: rgba(14, 34, 32, .94); }
+        html[data-theme="dark"] .theme-toggle { background: var(--soft); border-color: var(--line); box-shadow: none; }
+        html[data-theme="dark"] .theme-toggle::after { transform: translateX(28px); background: var(--panel); box-shadow: 0 2px 8px rgba(0, 0, 0, .32); }
+
+        :is(button, a, input, select, textarea, summary, [role="button"]):focus-visible {
+            outline: 3px solid var(--focus-ring);
+            outline-offset: 3px;
+        }
+
+        .top {
+            align-items: flex-end;
+            margin-bottom: 26px;
+        }
+        h1 {
+            font-size: clamp(26px, 3vw, 34px);
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -.04em;
+        }
+        h1::before {
+            content: "CREATE  /  PROCESS  /  EXPORT";
+            display: block;
+            margin-bottom: 10px;
+            color: var(--accent);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .16em;
+        }
+        h1 small { margin-top: 10px; font-size: 14px; line-height: 1.5; letter-spacing: 0; }
+        .state {
+            min-width: 92px;
+            padding: 8px 14px;
+            border: 1px solid rgba(var(--accent-rgb), .34);
+            background: var(--accent-soft);
+            color: var(--accent-dark);
+            font-size: 12px;
+            letter-spacing: .02em;
+        }
+
+        .stepper { gap: 12px; margin-bottom: 22px; }
+        .step-nav {
+            min-height: 78px;
+            padding: 14px 16px;
+            border-radius: 15px;
+            box-shadow: none;
+        }
+        .step-nav:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+        .step-nav.active {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+            box-shadow: inset 3px 0 0 var(--accent), 0 0 0 3px var(--focus-ring);
+        }
+        .step-nav.done { background: var(--soft); }
+        .step-num {
+            width: 36px;
+            height: 36px;
+            border-radius: 11px;
+            background: var(--soft);
+            border-color: var(--line);
+        }
+        .step-nav.active .step-num,
+        .step-nav.done .step-num {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--on-accent);
+        }
+        .step-label .t { font-size: 14px; font-weight: 800; }
+        .step-label .s { font-size: 12px; }
+
+        .panel {
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+        }
+        .panel-head {
+            padding: 20px 22px;
+            background: var(--panel);
+        }
+        .panel-title { font-size: 16px; font-weight: 800; letter-spacing: -.01em; }
+        .panel-subtitle { margin-top: 5px; font-size: 13px; }
+        .count {
+            padding: 5px 10px;
+            border-radius: var(--radius-pill);
+            background: var(--soft);
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .upload {
+            min-height: 214px;
+            margin: 20px;
+            padding: 34px;
+            border: 1px dashed var(--accent);
+            border-radius: 16px;
+            background: var(--accent-soft);
+        }
+        .upload:hover, .upload.dragover {
+            background: var(--accent-soft);
+            border-color: var(--accent-dark);
+            box-shadow: 0 0 0 4px var(--focus-ring);
+        }
+        .upload-main { position: relative; padding-top: 60px; font-size: 18px; font-weight: 800; }
+        .upload-main::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            display: block;
+            width: 46px;
+            height: 46px;
+            border: 1px solid rgba(var(--accent-rgb), .32);
+            border-radius: 13px;
+            background: var(--panel);
+        }
+        .upload-main::after {
+            content: "";
+            position: absolute;
+            top: 16px;
+            left: calc(50% - 6px);
+            width: 11px;
+            height: 11px;
+            border-top: 2px solid var(--accent);
+            border-left: 2px solid var(--accent);
+            transform: rotate(45deg);
+        }
+        .upload-sub { max-width: 560px; margin: 9px auto 0; font-size: 13px; }
+        .empty { padding: 0 22px 22px; font-size: 12.5px; }
+
+        .image-list { gap: 14px; padding: 0 20px 20px; }
+        .image-row {
+            min-height: 160px;
+            grid-template-columns: 52px 44px 220px minmax(0, 1fr) 58px;
+            border-radius: 14px;
+            box-shadow: none;
+            transition: border-color .18s ease, background .18s ease, transform .18s ease;
+        }
+        .image-row:hover { border-color: rgba(var(--accent-rgb), .58); transform: translateY(-1px); }
+        .index-cell, .arrows { background: var(--soft); }
+        .index {
+            width: 34px;
+            height: 34px;
+            border-radius: 11px;
+            background: var(--accent);
+            color: var(--on-accent);
+        }
+        .arrow {
+            min-height: 52px;
+            background: transparent;
+            color: var(--accent-dark);
+            font-size: 18px;
+        }
+        .arrow:hover:not(:disabled) { background: var(--accent-soft); }
+        .thumb, .doc-thumb, .ms-thumb { background: var(--soft); }
+        .meta { gap: 9px; padding: 18px 20px; }
+        .name { font-size: 15.5px; font-weight: 800; }
+        .hint { font-size: 12.5px; }
+        .image-controls { gap: 10px; }
+        .control-field select {
+            min-height: 38px;
+            padding: 7px 10px;
+            border-radius: 9px;
+            background: var(--panel);
+        }
+        .remove {
+            border: 1px solid rgba(194, 65, 59, .2);
+            background: var(--danger-soft);
+            color: var(--danger);
+        }
+        .remove:hover { background: var(--danger); color: #fff; }
+
+        .side { top: 24px; }
+        .side-body { padding: 22px; }
+        .workflow-tips { gap: 0; margin-bottom: 20px; }
+        .workflow-tip { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+        .workflow-tip:last-child { border-bottom: 0; }
+        .workflow-tip b {
+            width: 28px;
+            height: 28px;
+            border-radius: 9px;
+            background: var(--accent);
+            color: var(--on-accent);
+            font-size: 12px;
+        }
+        .workflow-tip strong { font-size: 13px; }
+
+        .primary, .secondary {
+            min-height: 44px;
+            border-radius: 11px;
+            transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease;
+        }
+        .primary {
+            background: var(--accent);
+            color: var(--on-accent);
+            box-shadow: 0 8px 16px rgba(var(--accent-rgb), .18);
+        }
+        .primary:hover:not(:disabled) { background: var(--accent-dark); color: var(--on-accent); transform: translateY(-1px); }
+        .primary:active:not(:disabled), .secondary:active:not(:disabled) { transform: translateY(0) scale(.99); }
+        .secondary {
+            border: 1px solid var(--line);
+            background: var(--soft);
+            color: var(--text);
+        }
+        .secondary:hover:not(:disabled) { filter: none; border-color: var(--accent); background: var(--panel); color: var(--accent-dark); }
+        .secondary.danger { border-color: rgba(194, 65, 59, .22); background: var(--danger-soft); color: var(--danger); }
+        #startBtn { background: var(--cta); color: var(--on-cta); box-shadow: 0 9px 18px rgba(234, 88, 12, .18); }
+        #startBtn:hover:not(:disabled) { background: var(--cta-hover); color: var(--on-cta); }
+
+        .voice-group, .voice-create, .advanced-settings {
+            border-radius: 12px;
+            background: var(--panel);
+        }
+        .voice-group-summary, .advanced-settings > summary { background: var(--soft); }
+        .voice-group-summary { min-height: 44px; padding: 11px 14px; color: var(--text); }
+        .voice-group-count { background: var(--accent-soft); color: var(--accent-dark); }
+        .voice-group-body { padding: 10px; }
+        .voice-item { border-radius: 10px; padding: 11px 12px; }
+        .voice-item:hover { border-color: var(--accent); }
+        .voice-item.selected { background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+        .voice-dot { width: 15px; height: 15px; }
+        .voice-actions button { min-height: 32px; border-radius: 8px; border-color: var(--line); background: var(--panel); }
+        .voice-actions button[data-action="sync"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+        .voice-create > summary { min-height: 44px; padding: 11px 14px; }
+        .voice-create > summary::after { background: var(--accent-soft); color: var(--accent); }
+        .voice-create-body { padding: 16px; }
+        .voice-drop { background: var(--soft); border-color: var(--line); border-radius: 10px; }
+        .voice-drop:hover, .voice-drop.dragover { border-color: var(--accent); background: var(--accent-soft); }
+        .voice-clip-editor, .gpu-voice-hint { background: var(--soft); border-color: var(--line); }
+        .voice-clip-actions button { min-height: 38px; border-radius: 9px; background: var(--panel); }
+        .text-input { min-height: 44px; border-radius: 10px; }
+        .text-input:focus, .ms-text:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+        .speed-value { color: var(--accent-dark); }
+
+        .progress-card {
+            padding: 16px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--soft);
+        }
+        .bar { height: 8px; background: var(--line); }
+        .bar .fill, .fill { background: var(--accent); }
+        .progress-card.indeterminate .fill, .material-progress.indeterminate .fill {
+            background-image: none;
+            animation: ux-progress-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes ux-progress-pulse { 50% { opacity: .62; } }
+
+        .ms-toolbar { padding: 16px 20px; background: var(--soft); }
+        .ms-toolbar .primary, .ms-toolbar .secondary { min-height: 42px; }
+        .ms-list { gap: 16px; padding: 20px; }
+        .ms-card { border-radius: 14px; background: var(--panel); box-shadow: none; }
+        .ms-body { gap: 10px; padding: 16px; }
+        .ms-text { background: var(--soft); border-radius: 10px; }
+        .ms-text:focus { background: var(--panel); }
+        .ms-text.invalid { background: var(--warning-soft); border-color: var(--warning); }
+        .gen-summary { gap: 12px; padding: 22px; }
+        .gen-row { padding-bottom: 10px; }
+        .log { background: #102623; color: #d4f1eb; border: 1px solid var(--line); }
+        .download button { min-height: 44px; border-radius: 11px; }
+
+        .image-dialog-content { background: var(--panel); }
+
+        html[data-theme="dark"] :is(.arrow, .control-field select, .voice-row .voice-engine-select, .voice-actions button, .voice-group, .voice-create, .voice-drop, .ms-card, .ms-text:focus, .voice-clip-actions button) {
+            background: var(--panel);
+            border-color: var(--line);
+            color: var(--text);
+        }
+        html[data-theme="dark"] :is(.voice-item.unavailable, .voice-group-summary, .advanced-settings, .advanced-settings > summary) { background: var(--soft); }
+        html[data-theme="dark"] .upload { background: var(--accent-soft); }
+        html[data-theme="dark"] .upload-main::before { background: var(--panel); }
+        html[data-theme="dark"] .ms-text.invalid { background: var(--danger-soft); border-color: var(--danger); }
+        html[data-theme="dark"] .success-box { background: var(--success-soft); }
+        html[data-theme="dark"] .error-box { background: var(--danger-soft); }
+        html[data-theme="dark"] .remove { background: var(--danger-soft); }
+
+        @media (max-width: 920px) {
+            body { padding: 18px; }
+            .mainnav { top: 10px; }
+            .image-row { grid-template-columns: 48px 38px 120px minmax(0, 1fr) 46px; }
+            .side { top: auto; }
+        }
+        @media (max-width: 620px) {
+            body { padding: 14px; }
+            .mainnav { top: 8px; margin-bottom: 22px; padding: 10px 12px; }
+            .top { align-items: flex-start; gap: 12px; }
+            .state { width: 100%; margin-top: 0; }
+            .stepper { grid-template-columns: 1fr; gap: 8px; }
+            .step-nav { min-height: 64px; justify-content: flex-start; }
+            .step-label .s { display: block; }
+            .panel-head { padding: 17px 16px; }
+            .upload { min-height: 184px; margin: 14px; padding: 26px 18px; }
+            .image-list { padding: 0 14px 14px; }
+            .image-row { grid-template-columns: 42px 34px 92px minmax(0, 1fr) 42px; min-height: 138px; }
+            .meta { padding: 12px 10px; }
+            .name { font-size: 14px; }
+            .image-controls { grid-template-columns: 1fr; gap: 6px; }
+            .control-field select { min-height: 36px; }
+            .side-body { padding: 16px; }
+            .manuscript-choice { grid-template-columns: 1fr; }
+            .ms-toolbar { padding: 14px 16px; }
+            .ms-toolbar > * { width: 100%; }
+            .ms-list { padding: 14px; }
+            .ms-card { grid-template-columns: 90px minmax(0, 1fr); }
+            .ms-body { padding: 12px; }
+            .gen-summary { padding: 16px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: .01ms !important;
+                animation-iteration-count: 1 !important;
+                scroll-behavior: auto !important;
+                transition-duration: .01ms !important;
+            }
+        }
+
+        /* ===== UI UX Pro Max visual refinement =====
+           Bring the utility UI back to a compact navy/blue visual hierarchy. */
+        :root {
+            --bg: #f5f7fb;
+            --panel: #ffffff;
+            --soft: #f2f4f8;
+            --line: #e2e7ef;
+            --text: #1b2436;
+            --muted: #5a6477;
+            --accent: #2b5cff;
+            --accent-dark: #1e47d6;
+            --accent-soft: #eaf1ff;
+            --accent-rgb: 43, 92, 255;
+            --focus-ring: rgba(43, 92, 255, .18);
+            --on-accent: #ffffff;
+            --cta: #2b5cff;
+            --cta-hover: #1e47d6;
+            --on-cta: #ffffff;
+            --success: #16a34a;
+            --success-soft: #ecfdf3;
+            --warning: #b45309;
+            --warning-soft: #fff7e8;
+            --danger: #dc2626;
+            --danger-soft: #fff1f2;
+            --shadow-sm: 0 1px 2px rgba(15, 20, 25, .04);
+            --shadow: 0 4px 12px rgba(15, 20, 25, .06);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --radius-pill: 999px;
+            --brand-warm: #f97316;
+        }
+        html[data-theme="dark"] {
+            --bg: #090e1a;
+            --panel: #111827;
+            --soft: #182235;
+            --line: #28364d;
+            --text: #edf2ff;
+            --muted: #9ba9bf;
+            --accent: #7c9cff;
+            --accent-dark: #a9bcff;
+            --accent-soft: #1a2948;
+            --accent-rgb: 124, 156, 255;
+            --focus-ring: rgba(124, 156, 255, .28);
+            --on-accent: #081225;
+            --cta: #7c9cff;
+            --cta-hover: #a9bcff;
+            --on-cta: #081225;
+            --success: #4ade80;
+            --success-soft: #123322;
+            --warning: #fbbf24;
+            --warning-soft: #3a2a12;
+            --danger: #fb7185;
+            --danger-soft: #351a22;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, .18);
+            --shadow: 0 4px 14px rgba(0, 0, 0, .18);
+            --brand-warm: #fb923c;
+        }
+        body {
+            padding: clamp(16px, 2vw, 28px);
+            font-family: "Source Han Sans CN", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+            line-height: 1.6;
+            letter-spacing: .01em;
+            background-image: none;
+        }
+        .mainnav {
+            top: 12px;
+            min-height: 60px;
+            margin-bottom: 20px;
+            padding: 8px 12px 8px 16px;
+            background: var(--panel);
+            border-radius: 12px;
+            box-shadow: var(--shadow-sm);
+            -webkit-backdrop-filter: none;
+            backdrop-filter: none;
+        }
+        .nav-brand { gap: 8px; }
+        .nav-brand::before { box-shadow: 5px 5px 0 var(--brand-warm); }
+        .nav-links { gap: 4px; padding: 3px; }
+        .nav-link { min-height: 38px; padding: 7px 14px; }
+        .nav-link.active { box-shadow: var(--shadow-sm); }
+        .theme-toggle:hover { box-shadow: 0 2px 6px rgba(var(--accent-rgb), .12); }
+        html[data-theme="dark"] .mainnav { background: var(--panel); }
+        .top { margin-bottom: 22px; }
+        h1 {
+            font-size: clamp(24px, 2.6vw, 32px);
+            line-height: 1.2;
+            letter-spacing: -.02em;
+        }
+        h1::before { display: none; }
+        h1 small { margin-top: 8px; letter-spacing: 0; }
+        .stepper { gap: 8px; margin-bottom: 18px; }
+        .step-nav { min-height: 70px; padding: 12px 14px; border-radius: 8px; }
+        .step-num { width: 32px; height: 32px; border-radius: 8px; }
+        .panel { margin-bottom: 16px; border-radius: 12px; box-shadow: var(--shadow); }
+        .panel-head { padding: 16px 18px; }
+        .upload {
+            min-height: 160px;
+            margin: 16px;
+            padding: 24px;
+            border-radius: 8px;
+        }
+        .upload:hover, .upload.dragover { box-shadow: 0 0 0 3px var(--focus-ring); }
+        .upload-main { padding-top: 48px; font-size: 16px; }
+        .upload-main::before { width: 40px; height: 40px; border-radius: 8px; }
+        .upload-main::after { top: 14px; width: 10px; height: 10px; }
+        .image-list { gap: 10px; padding: 0 16px 16px; }
+        .image-row { min-height: 144px; border-radius: 8px; }
+        .index { width: 32px; height: 32px; border-radius: 8px; }
+        .control-field select { min-height: 36px; border-radius: 8px; }
+        .meta { padding: 14px 16px; }
+        .side-body { padding: 18px; }
+        .primary, .secondary { min-height: 42px; border-radius: 8px; }
+        .primary { box-shadow: none; }
+        .primary:hover:not(:disabled) { transform: none; }
+        #startBtn { background: var(--cta); color: var(--on-cta); box-shadow: none; }
+        .voice-group, .voice-create, .advanced-settings { border-radius: 8px; }
+        .voice-group-summary, .advanced-settings > summary { min-height: 42px; padding: 10px 12px; }
+        .voice-group-body { padding: 8px; }
+        .voice-item { border-radius: 8px; padding: 9px 10px; }
+        .voice-create > summary { min-height: 42px; padding: 10px 12px; }
+        .voice-drop, .voice-clip-editor, .ms-card { border-radius: 8px; }
+        .voice-clip-actions button, .text-input, .ms-text { border-radius: 8px; }
+        .progress-card { padding: 14px; border-radius: 8px; }
+        .ms-list { gap: 12px; padding: 16px; }
+        .ms-body { gap: 8px; padding: 14px; }
+        .download button { border-radius: 8px; }
+        .log { background: #17233a; color: #dbe7ff; }
+        @media (max-width: 620px) {
+            .upload { min-height: 148px; margin: 14px; padding: 22px 18px; }
+            .image-list { padding: 0 14px 14px; }
+        }
     </style>
 </head>
 <body>
@@ -700,6 +1277,8 @@
             <div class="nav-links">
                 <a class="nav-link active" href="/" aria-current="page">图片视频生成</a>
                 <a class="nav-link" href="/tts">TTS 语音合成</a>
+                <a class="nav-link" href="/singing">AI 唱歌</a>
+                <a class="nav-link" href="/audio-converter">音频转换</a>
             </div>
             <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换到深色模式" aria-pressed="false" title="切换到深色模式">
                 <svg class="theme-icon theme-icon-sun" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
@@ -920,6 +1499,18 @@
                                     </div>
                                     <div class="voice-train-fields">
                                         <label><span>音色名称</span><input class="text-input" id="voiceNameInput" maxlength="30" placeholder="例如：产品经理小林" autocomplete="off"></label>
+                                        <label><span>参考音频语言</span><select class="text-input" id="voiceLanguageInput" aria-describedby="voiceLanguageHint">
+                                            <option value="auto">自动识别</option>
+                                            <option value="zh">中文</option>
+                                            <option value="en">英语</option>
+                                            <option value="ja">日语</option>
+                                            <option value="ko">韩语</option>
+                                            <option value="de">德语</option>
+                                            <option value="es">西班牙语</option>
+                                            <option value="fr">法语</option>
+                                            <option value="it">意大利语</option>
+                                            <option value="ru">俄语</option>
+                                        </select><small class="hint" id="voiceLanguageHint">留空逐字稿时，系统会按此语言引导识别；选择“自动识别”可自动判断。</small></label>
                                         <label><span>录音逐字稿（选填）</span><textarea class="text-input" id="voiceRefTextInput" maxlength="500" placeholder="留空将自动识别；手动填写通常更准确"></textarea></label>
                                         <label class="voice-train-consent"><input id="voiceConsentInput" type="checkbox"><span>我确认已获得该声音的使用授权，并同意仅在本机处理这段录音。</span></label>
                                         <button class="primary voice-create-submit" id="voiceCreateBtn" type="submit">创建克隆音色</button>
@@ -1096,6 +1687,7 @@
         const voiceFileMeta = document.getElementById('voiceFileMeta');
         const voiceAudioPreview = document.getElementById('voiceAudioPreview');
         const voiceNameInput = document.getElementById('voiceNameInput');
+        const voiceLanguageInput = document.getElementById('voiceLanguageInput');
         const voiceRefTextInput = document.getElementById('voiceRefTextInput');
         const voiceConsentInput = document.getElementById('voiceConsentInput');
         const voiceCreateBtn = document.getElementById('voiceCreateBtn');
@@ -2691,7 +3283,7 @@
             backgroundMusicInput.disabled = isRunning;
             backgroundMusicReplaceBtn.disabled = isRunning || !backgroundMusic;
             backgroundMusicRemoveBtn.disabled = isRunning || !backgroundMusic;
-            [voiceFileInput, voiceNameInput, voiceRefTextInput, voiceConsentInput, voiceCreateBtn].forEach((element) => {
+            [voiceFileInput, voiceNameInput, voiceLanguageInput, voiceRefTextInput, voiceConsentInput, voiceCreateBtn].forEach((element) => {
                 element.disabled = isRunning;
             });
             updateVoiceControls();
@@ -2778,7 +3370,13 @@
                 const selected = v.id === selectedVoiceId ? ' selected' : '';
                 const unavailable = v.available === false ? ' unavailable' : '';
                 const typeLabel = v.type === 'cosyvoice3' ? 'CosyVoice3 零样本' : 'Edge TTS 云端';
+                const languageLabel = v.type === 'cosyvoice3'
+                    ? (v.language_label || '语言未标记')
+                    : '';
                 const availabilityLabel = v.availability_reason ? ` · ${v.availability_reason}` : '';
+                const voiceTypeLabel = v.type === 'cosyvoice3'
+                    ? `${typeLabel} · ${languageLabel}`
+                    : typeLabel;
                 const actionParts = [];
                 if (v.deletable) {
                     actionParts.push(`<button type="button" data-action="rename" title="重命名">重命名</button>`);
@@ -2791,7 +3389,7 @@
                         <span class="voice-dot"></span>
                         <span class="voice-main">
                             <span class="voice-name" title="${escapeAttribute(v.name)}">${escapeHtml(v.name)}</span>
-                            <span class="voice-tag">${escapeHtml(typeLabel + availabilityLabel)}</span>
+                            <span class="voice-tag">${escapeHtml(voiceTypeLabel + availabilityLabel)}</span>
                         </span>
                         ${actions}
                     </div>`;
@@ -2992,6 +3590,7 @@
         voiceCreateForm.addEventListener('submit', async (event) => {
             event.preventDefault();
             const name = voiceNameInput.value.trim();
+            let language = voiceLanguageInput.value || 'auto';
             let refText = voiceRefTextInput.value.trim();
             if (!selectedVoiceFile) { setVoiceCreateStatus('请先选择参考音频。', 'error'); return; }
             if (!name) { setVoiceCreateStatus('请填写音色名称。', 'error'); voiceNameInput.focus(); return; }
@@ -3005,6 +3604,7 @@
                     setVoiceCreateStatus('未填写逐字稿，正在本机识别参考音频，请稍候…');
                     const transcriptForm = new FormData();
                     transcriptForm.append('file', selectedVoiceFile, selectedVoiceFile.name);
+                    transcriptForm.append('language', language);
                     voiceClipEditor.appendTo(transcriptForm);
                     const transcriptResponse = await apiFetch('/voices/transcribe', { method: 'POST', body: transcriptForm });
                     const transcriptResult = await safeReadJson(transcriptResponse);
@@ -3014,6 +3614,12 @@
                     refText = transcriptResult.text.trim();
                     autoTranscript = refText;
                     voiceRefTextInput.value = refText;
+                    const detectedLanguage = String(transcriptResult.language || '').trim().toLowerCase();
+                    const detectedLanguageOption = Array.from(voiceLanguageInput.options).find((option) => option.value === detectedLanguage);
+                    if (language === 'auto' && detectedLanguageOption) {
+                        language = detectedLanguage;
+                        voiceLanguageInput.value = detectedLanguage;
+                    }
                     setVoiceCreateStatus(`已自动识别并填入逐字稿：${refText}`);
                 }
 
@@ -3021,6 +3627,7 @@
                 form.append('file', selectedVoiceFile, selectedVoiceFile.name);
                 form.append('name', name);
                 form.append('ref_text', refText);
+                form.append('language', language);
                 form.append('consent', 'true');
                 voiceClipEditor.appendTo(form);
                 voiceCreateBtn.textContent = '正在分析并创建…';

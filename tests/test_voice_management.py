@@ -145,6 +145,7 @@ class VoiceCreateApiTests(unittest.TestCase):
                         "file": (make_wav(5.0), "sample.wav"),
                         "name": "测试音色",
                         "ref_text": "这是一段测试音频",
+                        "language": "en",
                         "consent": "true",
                     },
                     content_type="multipart/form-data",
@@ -155,6 +156,7 @@ class VoiceCreateApiTests(unittest.TestCase):
                 voice_id = body["voice"]["id"]
                 meta = web_server.VOICE_REGISTRY.get_voice(voice_id)
                 self.assertIsNotNone(meta)
+                self.assertEqual(meta.language, "en")
                 self.assertFalse(os.path.isabs(meta.ref_audio))
                 self.assertTrue(os.path.isfile(os.path.join(temp_dir, "voices", meta.ref_audio)))
                 self.assertEqual(os.listdir(web_server.UPLOAD_FOLDER), [])
@@ -254,7 +256,10 @@ class VoiceCreateApiTests(unittest.TestCase):
                 }) as transcribe:
                     response = web_server.app.test_client().post(
                         "/api/voices/transcribe",
-                        data={"file": (make_wav(5.0), "sample.wav")},
+                        data={
+                            "file": (make_wav(5.0), "sample.wav"),
+                            "language": "de",
+                        },
                         content_type="multipart/form-data",
                     )
                 body = response.get_json()
@@ -262,6 +267,7 @@ class VoiceCreateApiTests(unittest.TestCase):
                 self.assertEqual(body["text"], "接口自动识别的文字。")
                 prepared_path = transcribe.call_args.args[0]
                 self.assertTrue(prepared_path.endswith("speaker.wav"))
+                self.assertEqual(transcribe.call_args.kwargs["language"], "de")
                 self.assertEqual(os.listdir(web_server.UPLOAD_FOLDER), [])
             finally:
                 web_server.VOICE_VALIDATION = old_validation
