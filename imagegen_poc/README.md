@@ -6,6 +6,9 @@
 
 > **状态：2026-11-06 本机端到端实测 PASS**。1024² / 30 步中文海报 7 分 53 秒出图，
 > 中文字全部正确，全程无 OOM。实测数据见第五节。
+>
+> **已接入 toolbox**：Web 独立页面 `/imagegen`，切换页面时自动停 TTS Worker 腾显存。
+> 架构见 `docs/imagegen-integration-spec.md`；本目录的 CLI 仍可独立使用。
 
 ## 一、为什么这么设计
 

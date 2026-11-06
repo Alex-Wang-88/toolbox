@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 生图 - 音视频工具</title>
+    <script>
+        (function () {
+            const key = 'toolbox-color-theme';
+            let saved = null;
+            try { saved = localStorage.getItem(key); } catch (e) {}
+            const preferred = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.dataset.theme = saved === 'dark' || saved === 'light' ? saved : preferred;
+        }());
+    </script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #f5f7fb; --panel: #ffffff; --soft: #f2f4f8; --line: #e6eaf1;
+            --text: #1b2436; --muted: #5a6477; --accent: #2b5cff;
+            --accent-dark: #1e47d6; --accent-soft: #eaf1ff;
+            --success: #16a34a; --danger: #ef4444;
+            --shadow-sm: 0 1px 2px rgba(15,20,25,.04); --shadow: 0 4px 12px rgba(15,20,25,.06);
+            --radius: 12px; --radius-sm: 8px; --radius-pill: 100px;
+        }
+        html[data-theme="dark"] {
+            --bg: #090e1a; --panel: #111827; --soft: #182235; --line: #28364d;
+            --text: #edf2ff; --muted: #9ba9bf; --accent: #7c9cff;
+            --accent-dark: #a8bcff; --accent-soft: #1c2a49;
+            --success: #4ade80; --danger: #f87171;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,.35); --shadow: 0 6px 18px rgba(0,0,0,.32);
+        }
+        body {
+            min-height: 100vh; background: var(--bg); color: var(--text); padding: 24px;
+            font-family: "Source Han Sans CN", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+            line-height: 1.6; letter-spacing: .01em;
+        }
+        .app { max-width: 1180px; margin: 0 auto; }
+        .mainnav {
+            position: sticky; top: 0; z-index: 50; display: flex; align-items: center;
+            justify-content: space-between; gap: 16px; padding: 10px 16px; margin-bottom: 18px;
+            background: rgba(255,255,255,.82); backdrop-filter: blur(10px);
+            border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm);
+        }
+        html[data-theme="dark"] .mainnav { background: rgba(17,24,39,.84); }
+        .nav-brand { font-weight: 700; color: var(--text); text-decoration: none; font-size: 15px; white-space: nowrap; }
+        .nav-links { display: flex; gap: 6px; background: var(--soft); padding: 4px; border-radius: var(--radius-pill); }
+        .nav-link {
+            padding: 7px 16px; border-radius: var(--radius-pill); color: var(--muted);
+            text-decoration: none; font-size: 14px; font-weight: 500; white-space: nowrap;
+            transition: color .15s ease, background .15s ease;
+        }
+        .nav-link:hover { color: var(--text); }
+        .nav-link.active { background: var(--panel); color: var(--accent); box-shadow: var(--shadow-sm); }
+        .theme-toggle {
+            position: relative; flex: none; width: 76px; height: 36px; border-radius: 100px;
+            border: 1px solid var(--line); background: var(--soft); cursor: pointer;
+        }
+        .theme-toggle::after {
+            content: ""; position: absolute; top: 3px; left: 3px; width: 28px; height: 28px;
+            border-radius: 50%; background: var(--panel); box-shadow: var(--shadow-sm);
+            transition: transform .2s ease;
+        }
+        html[data-theme="dark"] .theme-toggle::after { transform: translateX(38px); }
+        .theme-icon { position: absolute; top: 8px; width: 18px; height: 18px; }
+        .theme-icon-sun { left: 9px; color: #f59e0b; }
+        .theme-icon-moon { right: 9px; color: var(--muted); }
+        .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+        .top { margin-bottom: 18px; }
+        .top h1 { font-size: 24px; font-weight: 700; }
+        .top h1 small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); margin-top: 4px; }
+
+        .mode-card {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius);
+            background: var(--accent-soft); border: 1px solid var(--line); font-size: 13px;
+        }
+        .mode-card.busy { background: rgba(239,68,68,.10); border-color: var(--danger); color: var(--danger); }
+        .mode-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex: none; }
+        .mode-card.busy .mode-dot { background: var(--danger); }
+        .mode-card .detail { color: var(--muted); margin-left: auto; font-size: 12px; }
+        html[data-theme="dark"] .mode-card .detail { color: var(--muted); }
+
+        .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 18px; }
+        .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+        .panel-head { padding: 14px 18px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 15px; }
+        .panel-body { padding: 18px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+        .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+        textarea, select, input[type="number"] {
+            width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+            background: var(--soft); color: var(--text); font: inherit; font-size: 14px; outline: none;
+        }
+        textarea { min-height: 130px; resize: vertical; line-height: 1.7; }
+        textarea:focus, select:focus, input:focus { border-color: var(--accent); }
+        .field { margin-bottom: 16px; }
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .preset {
+            padding: 6px 12px; font-size: 12px; border-radius: var(--radius-pill);
+            border: 1px solid var(--line); background: var(--soft); color: var(--muted); cursor: pointer;
+        }
+        .preset:hover { color: var(--accent); border-color: var(--accent); }
+        .actions { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+        button.primary {
+            flex: 1; padding: 11px 18px; border: 0; border-radius: var(--radius-sm);
+            background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+        }
+        button.primary:hover { background: var(--accent-dark); }
+        button.primary:disabled { opacity: .5; cursor: not-allowed; }
+        button.ghost {
+            padding: 11px 16px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+            background: var(--panel); color: var(--text); font: inherit; cursor: pointer;
+        }
+        button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .msg { margin-top: 12px; font-size: 13px; padding: 10px 12px; border-radius: var(--radius-sm); display: none; }
+        .msg.show { display: block; }
+        .msg.error { background: rgba(239,68,68,.10); color: var(--danger); }
+        .msg.ok { background: rgba(22,163,74,.10); color: var(--success); }
+
+        .progress-wrap { margin-bottom: 14px; }
+        .progress-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+        .bar { height: 8px; border-radius: 100px; background: var(--soft); overflow: hidden; }
+        .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
+        .bar.indeterminate > i { width: 35%; animation: slide 1.4s ease-in-out infinite; }
+        @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }
+
+        .stage { min-height: 300px; display: flex; align-items: center; justify-content: center;
+                 background: var(--soft); border: 1px dashed var(--line); border-radius: var(--radius-sm);
+                 color: var(--muted); font-size: 13px; text-align: center; padding: 20px; overflow: hidden; }
+        .stage img { display: block; max-width: 100%; max-height: 520px; object-fit: contain; border-radius: var(--radius-sm); }
+        .result-actions { display: flex; gap: 10px; margin-top: 12px; }
+        .result-actions a {
+            flex: 1; text-align: center; padding: 10px; border-radius: var(--radius-sm);
+            background: var(--accent-soft); color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600;
+        }
+        .history { margin-top: 18px; }
+        .history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+        .history-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm);
+                            border: 1px solid var(--line); cursor: pointer; background: var(--soft); }
+        .history-empty { font-size: 12px; color: var(--muted); }
+        .log { margin-top: 12px; max-height: 120px; overflow: auto; font-size: 12px; color: var(--muted); }
+        .log div { padding: 2px 0; }
+
+        @media (max-width: 900px) { .workspace { grid-template-columns: 1fr; } }
+        @media (max-width: 620px) {
+            body { padding: 12px; }
+            .mainnav { flex-wrap: wrap; padding: 10px 12px; }
+            .nav-links { order: 3; width: 100%; justify-content: center; overflow-x: auto; }
+            .nav-link { flex: 1 0 auto; text-align: center; padding-inline: 10px; font-size: 12px; }
+            .grid2 { grid-template-columns: 1fr; }
+        }
+        @media (prefers-reduced-motion: reduce) { .bar > i { animation: none; } }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <nav class="mainnav" aria-label="主导航">
+            <a class="nav-brand" href="/">音视频工具</a>
+            <div class="nav-links">
+                <a class="nav-link" href="/">图片视频生成</a>
+                <a class="nav-link" href="/tts">TTS 语音合成</a>
+                <a class="nav-link" href="/singing">AI 唱歌</a>
+                <a class="nav-link" href="/audio-converter">音频转换</a>
+                <a class="nav-link active" href="/imagegen" aria-current="page">AI 生图</a>
+            </div>
+            <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换到深色模式" aria-pressed="false" title="切换到深色模式">
+                <svg class="theme-icon theme-icon-sun" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
+                <svg class="theme-icon theme-icon-moon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5a8.5 8.5 0 1 0 12 12Z"/></svg>
+                <span class="sr-only">切换页面颜色主题</span>
+            </button>
+        </nav>
+
+        <header class="top">
+            <h1>AI 生图
+                <small>MOSS-Image 本地推理 · 中文文字与排版控制 · 切换页面自动释放显存</small>
+            </h1>
+        </header>
+
+        <div class="mode-card" id="modeCard">
+            <span class="mode-dot"></span>
+            <span id="modeText">正在检查资源模式...</span>
+            <span class="detail" id="modeDetail"></span>
+        </div>
+
+        <div class="workspace">
+            <section class="panel">
+                <div class="panel-head">生成参数</div>
+                <div class="panel-body">
+                    <div class="field">
+                        <label for="prompt">提示词 <span class="hint">要显示的文字请放在双引号里，中英文都支持</span></label>
+                        <div class="presets" id="presets"></div>
+                        <textarea id="prompt" maxlength="2000" placeholder="例如：一张极简风格海报，米色背景，顶部大字标题写着&quot;山间一盏茶&quot;"></textarea>
+                        <div class="hint" style="text-align:right;margin-top:4px"><span id="charCount">0</span>/2000</div>
+                    </div>
+
+                    <div class="grid2">
+                        <div class="field">
+                            <label for="width">宽度</label>
+                            <select id="width"><option>512</option><option>768</option><option selected>1024</option></select>
+                        </div>
+                        <div class="field">
+                            <label for="height">高度</label>
+                            <select id="height"><option>512</option><option>768</option><option selected>1024</option></select>
+                        </div>
+                        <div class="field">
+                            <label for="steps">采样步数 <span class="hint">越多越精细，越慢</span></label>
+                            <select id="steps"><option value="8">8 步（快速草稿）</option><option value="20">20 步</option><option value="30" selected>30 步（推荐）</option><option value="50">50 步（最佳质量）</option></select>
+                        </div>
+                        <div class="field">
+                            <label for="guidance">CFG <span class="hint">官方推荐 3.0</span></label>
+                            <input id="guidance" type="number" min="1" max="8" step="0.5" value="3">
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label for="seed">随机种子 <span class="hint">相同种子可复现同一张图</span></label>
+                        <input id="seed" type="number" min="0" max="2147483647" value="42">
+                    </div>
+
+                    <div class="actions">
+                        <button class="primary" id="generateBtn" type="button">开始生成</button>
+                        <button class="ghost" id="cancelBtn" type="button" disabled>取消</button>
+                    </div>
+                    <div class="msg" id="msg"></div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-head">生成结果</div>
+                <div class="panel-body">
+                    <div class="progress-wrap">
+                        <div class="progress-meta"><span id="progressText">等待生成</span><span id="progressPct">0%</span></div>
+                        <div class="bar" id="bar"><i id="barFill"></i></div>
+                    </div>
+                    <div class="stage" id="stage">生成结果会显示在这里<br>首次生成需加载本地模型，约 20–30 秒</div>
+                    <div class="result-actions" id="resultActions" style="display:none">
+                        <a id="downloadLink" href="#" download>下载图片</a>
+                        <a id="openLink" href="#" target="_blank" rel="noopener">查看原图</a>
+                    </div>
+                    <div class="log" id="log"></div>
+                    <div class="history">
+                        <div class="panel-head" style="padding:0 0 8px;border:0">最近生成</div>
+                        <div class="history-grid" id="historyGrid"><span class="history-empty">暂无记录</span></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+    (function () {
+        'use strict';
+        const $ = function (id) { return document.getElementById(id); };
+        const PRESETS = [
+            { label: '中文海报', text: '一张极简风格的中国茶饮海报，米色纸纹背景，中央一只青瓷茶杯冒着热气，顶部大字标题写着"山间一盏茶"，下方小字"清明前 · 手工采摘"，柔和自然光，大面积留白，平面设计风格' },
+            { label: '写实人像', text: 'A natural photorealistic portrait of a young woman in soft window light, shallow depth of field, subtle skin texture, muted color palette' },
+            { label: '产品静物', text: 'A minimal product photo of a matte black ceramic mug on a pale stone surface, soft morning light, clean composition, high detail' },
+            { label: '风景', text: '清晨的湖面，薄雾，远处层叠的青山，一叶小舟，柔和的金色光线，写实摄影风格，宁静氛围' }
+        ];
+        let taskId = null;
+        let timer = null;
+        let modeReady = false;
+
+        // ---- 主题开关（与其余页面共用 localStorage key） ----
+        (function theme() {
+            const key = 'toolbox-color-theme';
+            const root = document.documentElement;
+            const toggle = $('themeToggle');
+            const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+            function sync() {
+                const dark = root.dataset.theme === 'dark';
+                const label = dark ? '切换到浅色模式' : '切换到深色模式';
+                toggle.setAttribute('aria-pressed', String(dark));
+                toggle.setAttribute('aria-label', label);
+                toggle.title = label;
+            }
+            toggle.addEventListener('click', function () {
+                root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+                try { localStorage.setItem(key, root.dataset.theme); } catch (e) {}
+                sync();
+            });
+            if (media) {
+                media.addEventListener('change', function (ev) {
+                    let saved = null;
+                    try { saved = localStorage.getItem(key); } catch (e) {}
+                    if (!saved) { root.dataset.theme = ev.matches ? 'dark' : 'light'; sync(); }
+                });
+            }
+            sync();
+        }());
+
+        function showMsg(text, kind) {
+            const el = $('msg');
+            el.textContent = text || '';
+            el.className = 'msg show ' + (kind || '');
+        }
+        function clearMsg() { $('msg').className = 'msg'; }
+
+        function log(text) {
+            const el = $('log');
+            const line = document.createElement('div');
+            line.textContent = '[' + new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '] ' + text;
+            el.appendChild(line);
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function setModeCard(text, detail, busy) {
+            $('modeText').textContent = text;
+            $('modeDetail').textContent = detail || '';
+            $('modeCard').className = 'mode-card' + (busy ? ' busy' : '');
+        }
+
+        // ---- 切换界面时上报资源模式（后端负责停 TTS / 腾显存） ----
+        async function reportMode(mode, quiet) {
+            try {
+                const res = await fetch('/api/mode', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: mode })
+                });
+                const body = await res.json();
+                if (!res.ok) {
+                    setModeCard(body.error || '模式切换失败', '当前模式保持不变', true);
+                    if (!quiet) { showMsg(body.error || '模式切换失败', 'error'); }
+                    return false;
+                }
+                const d = body.data || {};
+                const detail = (d.message || '') + (d.tts_workers && d.tts_workers.length ? '' : '');
+                setModeCard(
+                    mode === 'imagegen' ? '生图模式 · GPU 已就绪' : '音视频模式',
+                    detail || d.last_switch_at || '', false
+                );
+                modeReady = true;
+                return true;
+            } catch (e) {
+                setModeCard('无法连接本地服务', String(e), true);
+                return false;
+            }
+        }
+
+        async function refreshMode() {
+            try {
+                const res = await fetch('/api/mode');
+                const body = await res.json();
+                const d = body.data || {};
+                if (d.mode === 'imagegen') {
+                    setModeCard('生图模式 · GPU 已就绪',
+                        '常驻 TTS Worker: ' + (d.tts_workers && d.tts_workers.length ? d.tts_workers.join(', ') : '已全部释放'), false);
+                } else {
+                    setModeCard('当前为音视频模式', '切到本页时会自动释放 TTS 显存', true);
+                }
+                return d;
+            } catch (e) { return {}; }
+        }
+
+        function setProgress(pct, text, indeterminate) {
+            $('progressPct').textContent = indeterminate ? '...' : pct + '%';
+            $('progressText').textContent = text || '';
+            $('barFill').style.width = indeterminate ? '35%' : pct + '%';
+            $('bar').className = 'bar' + (indeterminate ? ' indeterminate' : '');
+        }
+
+        function setBusy(busy) {
+            $('generateBtn').disabled = busy || !modeReady;
+            $('cancelBtn').disabled = !busy;
+        }
+
+        function renderImage(src) {
+            const stage = $('stage');
+            stage.innerHTML = '';
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = 'MOSS-Image 生成结果';
+            stage.appendChild(img);
+            $('resultActions').style.display = 'flex';
+            $('downloadLink').href = '/api/imagegen/file/' + taskId;
+            $('openLink').href = src;
+        }
+
+        async function poll() {
+            if (!taskId) { return; }
+            try {
+                const res = await fetch('/api/status/' + taskId);
+                if (!res.ok) { throw new Error('任务状态查询失败'); }
+                const t = await res.json();
+                const pct = Number(t.progress || 0);
+                setProgress(pct, t.message || t.stage || '处理中', !!t.indeterminate);
+                if (t.logs && t.logs.length) {
+                    const last = t.logs[t.logs.length - 1];
+                    if (last && last.message && $('log').lastChild && $('log').lastChild.textContent.indexOf(last.message) === -1) {
+                        log(last.message);
+                    }
+                }
+                if (t.status === 'done') {
+                    clearInterval(timer); timer = null;
+                    setBusy(false);
+                    showMsg('生成完成', 'ok');
+                    renderImage('/api/imagegen/preview/' + encodeURIComponent((t.result || {}).filename || ''));
+                    log('生成完成，耗时 ' + ((t.result || {}).elapsed || '?') + ' 秒');
+                    loadHistory();
+                    return;
+                }
+                if (t.status === 'error' || t.status === 'cancelled') {
+                    clearInterval(timer); timer = null;
+                    setBusy(false);
+                    showMsg(t.message || '任务已结束', 'error');
+                    log(t.message || '任务已结束');
+                    return;
+                }
+            } catch (e) {
+                clearInterval(timer); timer = null;
+                setBusy(false);
+                showMsg('轮询失败: ' + e.message, 'error');
+            }
+        }
+
+        async function generate() {
+            const prompt = $('prompt').value.trim();
+            if (!prompt) { showMsg('请先输入提示词', 'error'); return; }
+            clearMsg();
+            const payload = {
+                prompt: prompt,
+                width: Number($('width').value), height: Number($('height').value),
+                steps: Number($('steps').value), guidance: Number($('guidance').value),
+                seed: Number($('seed').value)
+            };
+            setBusy(true);
+            setProgress(0, '正在提交任务...', true);
+            $('stage').textContent = '正在生成，首次需加载本地模型...';
+            $('resultActions').style.display = 'none';
+            $('log').innerHTML = '';
+            try {
+                const res = await fetch('/api/imagegen/generate', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const body = await res.json();
+                if (!res.ok) { throw new Error(body.error || '提交失败'); }
+                taskId = body.task_id;
+                log('任务已提交: ' + taskId);
+                clearInterval(timer);
+                timer = setInterval(poll, 1200);
+                poll();
+            } catch (e) {
+                setBusy(false);
+                showMsg(e.message, 'error');
+                setProgress(0, '提交失败', false);
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                const res = await fetch('/api/imagegen/history');
+                const body = await res.json();
+                const items = (body.data || []).slice(0, 12);
+                const grid = $('historyGrid');
+                grid.innerHTML = '';
+                if (!items.length) {
+                    grid.innerHTML = '<span class="history-empty">暂无记录</span>';
+                    return;
+                }
+                items.forEach(function (item) {
+                    const img = document.createElement('img');
+                    img.src = '/api/imagegen/preview/' + encodeURIComponent(item.filename);
+                    img.alt = item.filename;
+                    img.title = item.mtime + ' · ' + Math.round(item.size / 1024) + ' KB';
+                    img.addEventListener('click', function () { renderImage(img.src); });
+                    grid.appendChild(img);
+                });
+            } catch (e) { /* 历史是附加功能，失败不阻塞主流程 */ }
+        }
+
+        // ---- 初始化 ----
+        (function initPresets() {
+            const box = $('presets');
+            PRESETS.forEach(function (p) {
+                const btn = document.createElement('button');
+                btn.type = 'button'; btn.className = 'preset'; btn.textContent = p.label;
+                btn.addEventListener('click', function () {
+                    $('prompt').value = p.text;
+                    $('charCount').textContent = String(p.text.length);
+                });
+                box.appendChild(btn);
+            });
+        }());
+
+        $('prompt').addEventListener('input', function () {
+            $('charCount').textContent = String(this.value.length);
+        });
+        $('generateBtn').addEventListener('click', generate);
+        $('cancelBtn').addEventListener('click', async function () {
+            if (!taskId) { return; }
+            try { await fetch('/api/cancel/' + taskId, { method: 'POST' }); log('已请求取消'); } catch (e) {}
+        });
+        // 模式切换完全由目标页面加载时上报完成，不依赖 beforeunload（不可靠）。
+        (async function boot() {
+            const ok = await reportMode('imagegen', false);
+            setBusy(false);
+            if (ok) { await refreshMode(); }
+            loadHistory();
+        }());
+    }());
+    </script>
+</body>
+</html>

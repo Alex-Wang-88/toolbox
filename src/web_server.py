@@ -31,6 +31,8 @@ from ffmpeg_util import resolve_ffmpeg, resolve_ffprobe
 from audio_transcriber import transcribe_audio
 import gpu_setup
 from gpu_arbiter import gpu_arbiter
+from resource_mode import MODE_VIDEO, MODE_IMAGEGEN, ModeBusyError, mode_manager
+from imagegen_client import imagegen_runner, check_ready as imagegen_check_ready
 import mimetypes
 import math
 
@@ -83,6 +85,7 @@ if not getattr(sys, "frozen", False):
         sys.path.insert(0, SRC_DIR)
 
 ensure_runtime_dirs()
+mode_manager.register_imagegen_stopper(imagegen_runner.stop)
 
 SUBTITLE_MODES = {"on", "off"}
 BACKGROUND_MUSIC_DIR = os.path.join(DATA_ROOT, "background_music")
@@ -655,6 +658,234 @@ def voice_clip_editor_script():
     return send_from_directory(STATIC_DIR, "voice_clip_editor.js")
 
 
+# ==================== MOSS-Image 生图（独立界面 + GPU 模式互斥） ====================
+@app.route("/imagegen")
+def imagegen_page():
+    response = send_from_directory(STATIC_DIR, "imagegen.html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
+def _ensure_video_mode():
+    """音视频/TTS 入口兜底：确保不在生图模式。忙时返回 False（调用方转 409）。"""
+    try:
+        mode_manager.ensure(MODE_VIDEO, source="api")
+        return True
+    except ModeBusyError:
+        return False
+
+
+@app.route("/api/mode", methods=["GET"])
+def get_resource_mode():
+    return jsonify({"success": True, "data": mode_manager.status()})
+
+
+@app.route("/api/mode", methods=["POST"])
+def set_resource_mode():
+    data = request.get_json(silent=True) or {}
+    mode = (data.get("mode") or "").strip()
+    try:
+        result = mode_manager.set_mode(mode, source="ui")
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except ModeBusyError as exc:
+        return jsonify({"success": False, "error": str(exc), "data": mode_manager.status()}), 409
+    payload = mode_manager.status()
+    payload.update(result)
+    return jsonify({"success": True, "data": payload})
+
+
+@app.route("/api/imagegen/status", methods=["GET"])
+def imagegen_status():
+    ready, err = imagegen_check_ready()
+    return jsonify({
+        "success": True,
+        "data": {
+            "ready": ready, "error": err or None,
+            "mode": mode_manager.status(),
+            "limits": {"width": [512, 768, 1024], "height": [512, 768, 1024],
+                       "steps": [4, 50], "guidance": [1.0, 8.0], "prompt_max": 2000},
+        },
+    })
+
+
+def _imagegen_int(data, key, default, low, high, allowed=None):
+    try:
+        value = int(data.get(key, default))
+    except (TypeError, ValueError):
+        value = default
+    value = max(low, min(high, value))
+    if allowed is not None and value not in allowed:
+        value = default
+    return value
+
+
+def _imagegen_worker(task_id, params, output_dir):
+    generation_lock.acquire()
+    gpu_acquired = False
+    try:
+        with mode_manager.task_scope(MODE_IMAGEGEN, source="imagegen"):
+            gpu_acquired = gpu_arbiter.acquire(block=True, timeout=1800)
+            if not gpu_acquired:
+                raise RuntimeError("GPU 正忙（训练中），请稍后重试")
+
+            def progress(event, data):
+                task = tasks.get(task_id)
+                if task is None:
+                    return
+                if task.get("cancel_requested"):
+                    imagegen_runner.stop()
+                    return
+                if event == "stage":
+                    stage = data.get("stage", "sampling")
+                    update_task_progress(task_id, 5 if stage == "loading" else 10,
+                                         data.get("message", "处理中..."),
+                                         stage=stage, log=True, indeterminate=True)
+                elif event == "progress":
+                    step = max(0, int(data.get("step", 0)))
+                    total = max(1, int(data.get("total", 1)))
+                    pct = 10 + int(85 * min(step, total) / total)
+                    update_task_progress(task_id, pct, f"采样中 {step}/{total}",
+                                         stage="sampling", indeterminate=False)
+                elif event == "error":
+                    update_task_progress(task_id, task.get("progress", 0),
+                                         data.get("message", "生成失败"),
+                                         stage="error", log=True)
+
+            update_task_progress(task_id, 2, "准备生图环境...", stage="loading",
+                                 log=True, indeterminate=True)
+            ok, payload, error = imagegen_runner.run(params, output_dir, progress)
+
+            task = tasks.get(task_id)
+            if task is None:
+                return
+            if task.get("cancel_requested"):
+                task.update({"status": "cancelled", "message": "任务已取消", "stage": "cancelled"})
+                return
+            if not ok:
+                task.update({"status": "error", "message": error or "生成失败", "stage": "error"})
+                return
+            payload = payload or {}
+            task.update({
+                "status": "done", "progress": 100, "message": "生成完成",
+                "stage": "done", "indeterminate": False,
+                "_file_path": payload.get("path", ""),
+                "result": {
+                    "filename": payload.get("filename"), "elapsed": payload.get("elapsed"),
+                    "width": payload.get("width"), "height": payload.get("height"),
+                    "steps": payload.get("steps"), "seed": payload.get("seed"),
+                },
+            })
+            update_task_progress(task_id, 100, "生成完成", stage="done", log=True)
+    except ModeBusyError as exc:
+        task = tasks.get(task_id)
+        if task is not None:
+            task.update({"status": "error", "message": str(exc), "stage": "error"})
+    except Exception as exc:
+        task = tasks.get(task_id)
+        if task is not None:
+            task.update({"status": "error", "message": f"生成失败：{exc}", "stage": "error"})
+        print(f"[ERROR] 生图任务失败: {exc}")
+    finally:
+        if gpu_acquired:
+            gpu_arbiter.release()
+        generation_lock.release()
+
+
+@app.route("/api/imagegen/generate", methods=["POST"])
+def imagegen_generate():
+    data = request.get_json(silent=True) or {}
+    prompt = (data.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"error": "缺少提示词"}), 400
+    if len(prompt) > 2000:
+        return jsonify({"error": "提示词过长（最多 2000 字）"}), 400
+    ready, err = imagegen_check_ready()
+    if not ready:
+        return jsonify({"error": err}), 503
+    try:
+        guidance = float(data.get("guidance", 3.0))
+    except (TypeError, ValueError):
+        guidance = 3.0
+    params = {
+        "prompt": prompt,
+        "width": _imagegen_int(data, "width", 1024, 512, 1024, allowed={512, 768, 1024}),
+        "height": _imagegen_int(data, "height", 1024, 512, 1024, allowed={512, 768, 1024}),
+        "steps": _imagegen_int(data, "steps", 30, 4, 50),
+        "guidance": max(1.0, min(8.0, guidance)),
+        "seed": _imagegen_int(data, "seed", 42, 0, 2 ** 31 - 1),
+    }
+    try:
+        mode_manager.ensure(MODE_IMAGEGEN, source="api")
+    except ModeBusyError as exc:
+        return jsonify({"error": str(exc), "data": mode_manager.status()}), 409
+
+    output_dir = os.path.join(get_output_folder(), "imagegen")
+    os.makedirs(output_dir, exist_ok=True)
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {
+        "status": "pending", "progress": 0, "message": "排队中...",
+        "stage": "queued", "indeterminate": True, "result": None,
+        "logs": [{"time": time.strftime("%H:%M:%S"), "message": "生图任务已进入队列", "stage": "queued"}],
+    }
+    threading.Thread(target=_imagegen_worker, args=(task_id, params, output_dir),
+                     daemon=True).start()
+    return jsonify({"task_id": task_id}), 202
+
+
+@app.route("/api/imagegen/file/<task_id>", methods=["GET"])
+def imagegen_file(task_id):
+    task = tasks.get(task_id)
+    if task is None or task.get("status") != "done":
+        return jsonify({"error": "图片不存在"}), 404
+    path = task.get("_file_path") or ""
+    root = os.path.realpath(os.path.join(get_output_folder(), "imagegen"))
+    real = os.path.realpath(path) if path else ""
+    try:
+        allowed = bool(real) and os.path.commonpath([root, real]) == root
+    except ValueError:
+        allowed = False
+    if not allowed or not os.path.isfile(real):
+        return jsonify({"error": "图片文件无效"}), 404
+    return send_file(real, mimetype="image/png", as_attachment=True,
+                     download_name=os.path.basename(real))
+
+
+@app.route("/api/imagegen/preview/<path:filename>", methods=["GET"])
+def imagegen_preview(filename):
+    name = os.path.basename(filename)
+    if name != filename or not name.lower().endswith(".png"):
+        return jsonify({"error": "文件名无效"}), 400
+    path = os.path.join(os.path.realpath(os.path.join(get_output_folder(), "imagegen")), name)
+    if not os.path.isfile(path):
+        return jsonify({"error": "图片不存在"}), 404
+    return send_file(path, mimetype="image/png")
+
+
+@app.route("/api/imagegen/history", methods=["GET"])
+def imagegen_history():
+    root = os.path.join(get_output_folder(), "imagegen")
+    items = []
+    if os.path.isdir(root):
+        for name in os.listdir(root):
+            if not name.lower().endswith(".png"):
+                continue
+            path = os.path.join(root, name)
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            items.append({"filename": name, "size": stat.st_size,
+                          "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+                          "_ts": stat.st_mtime})
+    items.sort(key=lambda x: x["_ts"], reverse=True)
+    for item in items:
+        item.pop("_ts", None)
+    return jsonify({"success": True, "data": items[:30]})
+
+
+
 @app.route("/api/client-alive", methods=["POST"])
 def client_alive():
     mark_client_alive()
@@ -883,6 +1114,8 @@ def select_output_folder():
 
 @app.route("/api/generate", methods=["POST"])
 def generate_video_task():
+    if not _ensure_video_mode():
+        return jsonify({"error": "生图任务进行中，请等完成后再使用音视频功能"}), 409
     data = request.get_json(silent=True) or {}
     image_items = normalize_image_items(data)
     if not image_items:
@@ -1963,6 +2196,8 @@ def _batch_generate_worker(task_id, lines, voice, speed):
 @app.route("/api/tts/quick", methods=["POST"])
 def tts_quick():
     """快速生成单段：{text, voice, speed?, voice_volume?, with_video?, image?}。"""
+    if not _ensure_video_mode():
+        return jsonify({"error": "生图任务进行中，请等完成后再使用音视频功能"}), 409
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     if not text:
@@ -2048,6 +2283,8 @@ def tts_quick():
 @app.route("/api/tts/batch", methods=["POST"])
 def tts_batch():
     """批量生成：{lines[], voice, speed?} -> {task_id}（后台线程，复用 /api/status/<task_id> 轮询）。"""
+    if not _ensure_video_mode():
+        return jsonify({"error": "生图任务进行中，请等完成后再使用音视频功能"}), 409
     data = request.get_json(silent=True) or {}
     lines = [str(x) for x in (data.get("lines") or []) if str(x).strip()]
     if not lines:
@@ -2915,6 +3152,10 @@ def _shutdown_worker_on_exit():
         MultiTtsWorkerClient.shutdown_all()
     except Exception as exc:  # 退出阶段尽力清理，任何异常都不应阻止退出
         print(f"[WARN] 退出时关闭 Worker 失败: {exc}")
+    try:
+        imagegen_runner.stop()
+    except Exception as exc:
+        print(f"[WARN] 退出时关闭生图进程失败: {exc}")
 
 
 atexit.register(_shutdown_worker_on_exit)

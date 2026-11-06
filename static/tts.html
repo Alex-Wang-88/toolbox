@@ -853,7 +853,8 @@
                 <a class="nav-link" href="/">图片视频生成</a>
                 <a class="nav-link active" href="/tts" aria-current="page">TTS 语音合成</a>
                 <a class="nav-link" href="/singing">AI 唱歌</a>
-                <a class="nav-link" href="/audio-converter">音频转换</a>
+<a class="nav-link" href="/audio-converter">音频转换</a>
+                <a class="nav-link" href="/imagegen">AI 生图</a>
             </div>
             <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换到深色模式" aria-pressed="false" title="切换到深色模式">
                 <svg class="theme-icon theme-icon-sun" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
@@ -1732,5 +1733,29 @@
             textInput.focus();
         })();
     </script>
+
+    <script>
+    (function () {
+        // 切换界面时通知后端切回音视频模式（后端会按需恢复 TTS 懒加载）。
+        fetch('/api/mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'video' }),
+            keepalive: true
+        }).then(function (r) {
+            return r.json().then(function (b) { return { ok: r.ok, body: b }; });
+        }).then(function (res) {
+            if (res.ok) { return; }
+            var tip = document.createElement('div');
+            tip.textContent = res.body.error || '资源模式切换失败';
+            tip.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:9999;' +
+                'padding:10px 16px;border-radius:8px;background:#b91c1c;color:#fff;font-size:13px;' +
+                'box-shadow:0 6px 18px rgba(0,0,0,.25)';
+            document.body.appendChild(tip);
+            setTimeout(function () { if (tip.parentNode) { tip.parentNode.removeChild(tip); } }, 6000);
+        }).catch(function () {});
+    }());
+    </script>
+
 </body>
 </html>
