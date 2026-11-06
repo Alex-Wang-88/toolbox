@@ -109,13 +109,21 @@ MODE_IMAGEGEN = "imagegen"   # 仅 /imagegen
 | 环境检查 | `GET /api/imagegen/status` → `ready: True`（venv / worker / 26GB 权重均就位） |
 | 参数校验 | 空 prompt → 400；越界 steps 被钳到 50 → 202 |
 | 历史/预览 | `GET /api/imagegen/history` → 200 |
+| 端到端出图 | 真实服务 512²/8 步 → **done / 124.6 秒 / 265KB PNG**；生成期间切页 409；结束后 GPU 13 MiB、0% |
 | 分支 | 仍只有 `main` |
 
-**未在自动化里跑的**：真实端到端「从页面点生成 → 出图」（会占 GPU 约 8–13 分钟）。
-MOSS 推理本身已在 POC 阶段实测 PASS（1024²/30 步 7 分 53 秒）；本层新增的是
-模式门禁与进程编排，已由单测 + Flask 端点冒烟覆盖。需要人工点一次「开始生成」做最终确认。
+**真实服务端端到端验收（2026-11-06 12:33，PASS）**：
 
-启动方式：项目原有的 Web 服务启动脚本即可，然后访问 `http://127.0.0.1:5000/imagegen`。
+启动 Web 服务后走完整链路：`POST /api/imagegen/generate`（512² / 8 步 / seed 7）
+→ 轮询 `/api/status/<task_id>` → `done`，耗时 **124.6 秒**，产出
+`output/imagegen/moss_20261106_123308_7.png`（265 KB，图像内容正确）。
+
+- 生成期间 `POST /api/mode {video}` 返回 **409**，`busy=1`，门禁生效；
+- 任务结束后 **GPU 显存回落到 13 MiB、利用率 0%**，证明显存被完整释放；
+- `callback_on_step_end` 步数进度事件生效（worker 日志可见 8/8 步），前端进度条不是假动画。
+
+服务已启动在 `http://127.0.0.1:5000/imagegen`，可直接点开使用。
+若服务被关闭，用 `.venv\Scripts\python.exe src\web_server.py` 重启。
 
 ## 9. 明确不做（本期范围外）
 
