@@ -5,6 +5,14 @@ setlocal
 set "HERE=%~dp0"
 set "PY=%HERE%venv_imagegen\Scripts\python.exe"
 
+REM The local proxy (127.0.0.1:59363) returns 502 on the 2.7GB torch wheel.
+REM All sources below work without it: Tsinghua mirror + download.pytorch.org.
+set "HTTPS_PROXY="
+set "HTTP_PROXY="
+set "ALL_PROXY="
+set "https_proxy="
+set "http_proxy="
+
 if not exist "%PY%" (
   echo [ERROR] venv not found. Create it first:
   echo   runtime\python\python.exe -m venv imagegen_poc\venv_imagegen
