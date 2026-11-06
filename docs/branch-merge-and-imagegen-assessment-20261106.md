@@ -195,8 +195,8 @@ edge 分支要求保留原稿标点/空格，两者互斥。合并统一以主�
 
 | 项 | 结果 |
 |---|---|
-| 本地 main | `e75ab7a`（最终），工作区干净 |
-| 远程 main | `e75ab7a`（`https://github.com/Alex-Wang-88/toolbox.git`） |
+| 本地 main | 以 `git log -1` 为准（合并收尾时 `e75ab7a`，之后追加了 MOSS POC 修订），工作区干净 |
+| 远程 main | 与本地 main 同步（`https://github.com/Alex-Wang-88/toolbox.git`），**只有这一条分支** |
 | 本地分支 | 只剩 `main` |
 | 远程分支 | 只剩 `main`（4 条旧分支已删除） |
 | 备份 | 6 个 `pre-merge-20261106/*` tag 已推送，可随时取回任一被删分支 |
