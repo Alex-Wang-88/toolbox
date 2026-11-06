@@ -1,8 +1,8 @@
-# MOSS-Image inference deps (torch is installed separately by setup_env.bat)
+# MOSS-Image inference deps (torch installed separately by setup_env.bat).
+# Weight download uses the ROOT venv (.venv), which already has modelscope.
 diffusers>=0.38
 transformers>=5.3
 accelerate>=1.10
 safetensors>=0.6
 Pillow>=10
-gradio>=6.30
-modelscope>=1.38
+numpy>=2

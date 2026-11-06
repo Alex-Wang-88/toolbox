@@ -34,8 +34,9 @@ GPU 争用：本 POC 用 CLI 单独跑，**启动前请关掉 toolbox 的 Web �
 REM 1) 装依赖（首次约 10–25 分钟，torch cu128 wheel 约 2.5GB）
 imagegen_poc\setup_env.bat
 
-REM 2) 下权重（25.36 GB，国内 CDN 视带宽约 20–90 分钟，支持断点续传）
-imagegen_poc\venv_imagegen\Scripts\python.exe imagegen_poc\download_weights.py
+REM 2) 下权重（25.36 GB，本机实测 11 分 34 秒，支持断点续传）
+REM    用根 venv 跑：下载脚本依赖 modelscope，根 venv 已装，独立 venv 不装
+.venv\Scripts\python.exe imagegen_poc\download_weights.py
 
 REM 3) 出第一张图
 imagegen_poc\venv_imagegen\Scripts\python.exe imagegen_poc\generate.py "一张极简旅行海报，米色底，蓝色山脉，顶部大字 EXPLORE"
