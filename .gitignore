@@ -99,3 +99,8 @@ cleanup_trash_20260724/
 # Python 缓存（双保险）
 __pycache__/
 *.pyc
+
+# MOSS-Image POC：venv / 25GB 权重 / 出图产物一律不入库，脚本与文档入库
+imagegen_poc/venv_imagegen/
+imagegen_poc/models/
+imagegen_poc/output/
