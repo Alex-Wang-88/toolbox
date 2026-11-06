@@ -59,6 +59,41 @@ class TestSubtitleGenerator(unittest.TestCase):
             self.assertEqual(seg.tts_text, expected)
             self.assertEqual(seg.status, "generated")
 
+    def test_edge_word_boundaries_drive_subtitle_timing(self):
+        """Edge 音色使用服务端真实词边界，不按字符比例估算。"""
+        segment = self._make_segment(1, 0, "前半句非常长，后半句", 5.0)
+        segment.subtitle_cues = [
+            {"start": 0.4, "end": 1.0, "text": "前半句非常长，"},
+            {"start": 3.2, "end": 4.6, "text": "后半句"},
+        ]
+        srt = self.gen.generate([segment])
+        self.assertIn("00:00:00,400 --> 00:00:03,200", srt)
+        self.assertIn("00:00:03,200 --> 00:00:04,600", srt)
+
+    def test_edge_word_boundaries_restore_ai_display(self):
+        """合并说明：主线 83495d6 决定字幕剥离标点/分词空格，只保留问号。
+        edge-tts 分支原本要求保留原稿空格，本分支合并后统一以主线策略为准。
+        """
+        segment = self._make_segment(1, 0, "AI 工具", 2.0)
+        segment.subtitle_cues = [
+            {"start": 0.1, "end": 0.8, "text": "A.I"},
+            {"start": 0.9, "end": 1.5, "text": " 工具"},
+        ]
+        srt = self.gen.generate([segment])
+        self.assertIn("AI工具", srt)
+        self.assertNotIn("A.I", srt)
+
+    def test_edge_word_boundaries_follow_manuscript_text(self):
+        """词边界按原稿映射后仍走主线的去标点策略；时间轴不受影响。"""
+        segment = self._make_segment(1, 0, "你好，世界。", 2.0)
+        segment.subtitle_cues = [
+            {"start": 0.1, "end": 0.7, "text": "你好"},
+            {"start": 0.9, "end": 1.6, "text": "世界"},
+        ]
+        srt = self.gen.generate([segment])
+        self.assertIn("你好世界", srt)
+        self.assertIn("00:00:00,100 --> 00:00:01,600", srt)
+
     def test_multiple_segments_same_page(self):
         """同页多段：段间停顿 300ms。"""
         segments = [

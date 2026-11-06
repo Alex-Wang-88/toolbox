@@ -739,11 +739,17 @@ async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='norm
         result = subprocess.run([ffmpeg, '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', '1', '-codec:a', 'libmp3lame', audio_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **silent_subprocess_kwargs())
         if result.returncode != 0 or not os.path.isfile(audio_path):
             raise RuntimeError(f'空白页静音音频生成失败：{result.stderr.strip()[-500:]}')
-        return {'global_id': global_id, 'text': text, 'audio_path': audio_path, 'duration_seconds': get_audio_duration(audio_path), 'submaker': submaker}
+        return {'global_id': global_id, 'text': text, 'audio_path': audio_path, 'duration_seconds': get_audio_duration(audio_path), 'submaker': submaker, 'word_boundaries': []}
     last_error = None
     for attempt in range(3):
         try:
-            communicate = edge_tts.Communicate(normalize_special_pronunciation(text), tts_voice, rate=rate)
+            # edge-tts 7.x 默认请求 SentenceBoundary；字幕需要词级时间戳。
+            communicate = edge_tts.Communicate(
+                normalize_special_pronunciation(text),
+                tts_voice,
+                rate=rate,
+                boundary='WordBoundary',
+            )
             audio_bytes = 0
             with open(audio_path, 'wb') as f:
                 async for chunk in communicate.stream():
@@ -774,9 +780,17 @@ async def tts_single_paragraph(global_id: int, text: str, speech_rate: str='norm
         else:
             raise RuntimeError(f'Edge TTS 连续失败且无可用备选方案：{last_error}')
     duration_seconds = get_audio_duration(audio_path)
+    word_boundaries = [
+        {
+            'start': cue.start.total_seconds(),
+            'end': cue.end.total_seconds(),
+            'text': cue.content,
+        }
+        for cue in getattr(submaker, 'cues', [])
+    ]
     text_length = len(text)
     print(f'[OK] 语音：图片{global_id} | {duration_seconds:.1f}秒 | 语速{rate} | 文本长度{text_length}字 | {text[:30]}...')
-    return {'global_id': global_id, 'text': text, 'audio_path': audio_path, 'duration_seconds': duration_seconds, 'submaker': submaker}
+    return {'global_id': global_id, 'text': text, 'audio_path': audio_path, 'duration_seconds': duration_seconds, 'submaker': submaker, 'word_boundaries': word_boundaries}
 
 def synthesize_with_windows_sapi(text: str, audio_path: str, speech_rate: str='normal') -> None:
     """Edge TTS不可用时，用Windows本地语音生成音频。仅 Windows 可用。"""
@@ -1122,6 +1136,7 @@ SegmentData 列表，使各通道行为一致（与 generate_video 内的重建�
         seg.subtitle_text = audio_info.get('text', '')
         seg.audio_path = audio_path
         seg.audio_duration = float(audio_info.get('duration_seconds', 0.0) or 0.0)
+        seg.subtitle_cues = list(audio_info.get('word_boundaries') or [])
         seg.status = 'generated'
         segs.append(seg)
     _last_all_segments = segs
