@@ -224,6 +224,12 @@ edge 分支要求保留原稿标点/空格，两者互斥。合并统一以主�
 MOSS-Image 已定为选型，体验环境按「独立 venv + 复用 gpu_arbiter」搭建；
 按 spec-first 先出方案再写代码，不把生图逻辑揉进主流程。
 
-POC 当前进度：骨架已提交推送；依赖安装与 25.36 GB 权重下载是两阶段长任务，
-权重从 ModelScope（`OpenMOSS/MOSS-Image-SFT`）拉取，支持断点续传。
-出图验证（Windows + sm_120 + CPU offload）尚未执行，结果出来前标 **BLOCKED**，不写作 PASS。
+**MOSS-Image 已在本机端到端实测 PASS（2026-11-06）**：权重 25.36 GB 从 ModelScope
+下载耗时 11 分 34 秒；独立 venv 装好 torch 2.11.0+cu128 / diffusers 0.42.1 /
+transformers 5.22.1；512² / 8 步冒烟 136 秒通过，1024² / 30 步中文海报 **7 分 53 秒
+出图、中文字全部正确、全程无 OOM**。diffusers 标准 sequential CPU offload 足以
+在 8GB 卡上跑通，不必依赖官方自研 offload。安装踩坑与完整实测数据见
+`imagegen_poc/README.md` 第五节。
+
+正式接入 toolbox 时按「独立模块 + 独立 venv + 复用 gpu_arbiter」，按 spec-first
+先出方案再写代码，不把生图逻辑揉进主流程。

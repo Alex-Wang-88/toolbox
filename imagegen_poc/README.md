@@ -4,6 +4,9 @@
 定位：**独立 POC，不是 toolbox 正式模块**。先验证「这台 8GB 笔记本能不能出图、效果如何」，
 验证通过后再按 `docs/branch-merge-and-imagegen-assessment-20261106.md` 第 4 节的方案接入 Web。
 
+> **状态：2026-11-06 本机端到端实测 PASS**。1024² / 30 步中文海报 7 分 53 秒出图，
+> 中文字全部正确，全程无 OOM。实测数据见第五节。
+
 ## 一、为什么这么设计
 
 | 约束 | 对策 |
@@ -54,15 +57,40 @@ imagegen_poc\venv_imagegen\Scripts\python.exe imagegen_poc\generate.py "一张�
   再降 `--steps 30`；不要改精度配置，MOSS 对数值变化敏感（单层 bf16 舍入变化可让 LPIPS 偏移 0.041）
 - 文字要准：把要显示的字放在英文双引号里，字大一点、短一点；复杂排版用官方 JSON Layout 当 prompt 传入
 
-## 五、已知风险（诚实标注）
+## 五、实测结果（2026-11-06，本机跑通）
 
-| 项 | 状态 |
+| 项 | 结果 |
 |---|---|
-| Windows + sm_120 + torch cu128 组合 | 未在本机实跑验证，**待第 3 步出图后确认** |
-| diffusers 标准 `enable_sequential_cpu_offload` 能否复现官方 `minimal` 的显存数字 | 官方用的是自研 `memory_offload.py`；标准 offload 可能更慢或略高，**待验证** |
-| `transformers>=5.3` 与 Python 3.13.14 的兼容性 | 待 `setup_env.bat` 安装时确认 |
-| 生成速度 | 官方 4090 上 INT8 约 56s/张；本机 CPU offload + 8GB 卡预计 **数分钟/张**，不适合批量 |
-| 与 toolbox 并发 | 不支持，必须独占 GPU |
+| 环境 | torch **2.11.0+cu128** / CUDA 12.8 / diffusers **0.42.1** / transformers **5.22.1** / accelerate 1.15.0 / numpy 2.5.4 / Python 3.13.14 |
+| GPU 识别 | `NVIDIA GeForce RTX 5060 Laptop GPU`，`torch.cuda.is_available()` = True |
+| 权重 | 26 GB / 8 个 safetensors 分片齐全，ModelScope 下载 **11 分 34 秒** |
+| 冒烟测试 | 512² / 8 步 / seed 42 → **PASS**，136 秒（加载 33 秒 + 采样 96 秒） |
+| 正式出图 | 1024² / 30 步 / CFG 3 / seed 2026 → **PASS**，**7 分 53 秒**（加载 23 秒 + 采样 5 分 55 秒，稳态约 9.5 s/步） |
+| 中文文字渲染 | 大字「山间一盏茶」+ 小字「清明前 · 手工采摘」**全部准确**，排版与留白符合海报要求 |
+| 显存 | 全程未 OOM；diffusers 标准 `enable_sequential_cpu_offload()` 在 8GB 卡上成立，**不需要**官方自研 `memory_offload.py` |
+| 与 toolbox 并发 | 未测，仍按不支持处理，必须独占 GPU |
+
+产物：
+
+- `imagegen_poc/output/moss_20261106_115748_42.png` —— 冒烟（512² / 8 步）
+- `imagegen_poc/output/moss_20261106_120649_2026.png` —— 正式中文海报（1024² / 30 步）
+
+三点观察：
+
+1. 加载时有 `MOSSImageScheduler` 的 config 属性忽略警告，以及缺少 `causal_conv1d` /
+   `flash-linear-attention` 导致回退 PyTorch 参考实现的警告。**都不影响结果**，只影响速度；
+   想再快一点可以补装这两个包。
+2. 第一步明显慢（75 秒，含 CUDA 预热与文本编码），之后稳定在 9.5 秒/步，所以增加步数的边际成本是线性的。
+3. 8 步的冒烟图质量已经可用，30 步的正式图细节更完整；官方 50 步是质量上限，本机约 12–13 分钟/张。
+
+### 安装踩过的坑（已修进 `setup_env.bat`）
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| torch wheel 下载 0 字节、反复 502 | 本机 `HTTPS_PROXY=127.0.0.1:59363` 对 2.75GB 文件返回 502 | torch 那一步清空代理变量，直连 `download.pytorch.org` |
+| `diffusers>=0.38` 报 `from versions: none` | 清华镜像的 simple 索引对 pip 26 返回空（curl 能拿到，pip 拿不到） | 其余依赖走代理 + **PyPI 官方源** `https://pypi.org/simple` |
+| `import torch` 警告缺 numpy | requirements 漏了 numpy | 已补 `numpy>=2` |
+| 下载脚本需要 modelscope | 独立 venv 不装 modelscope | 下载改用根 `.venv`（已装 modelscope 1.38.1） |
 
 ## 六、验证通过后怎么接进 toolbox（spec-first，届时再写代码）
 
