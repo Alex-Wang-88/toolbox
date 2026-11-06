@@ -189,10 +189,14 @@ edge 分支要求保留原稿标点/空格，两者互斥。合并统一以主�
 
 ## 五、执行结果（2026-11-06）
 
+> 追加：MOSS-Image 选型已确定，独立 POC 骨架落在 `imagegen_poc/`（README / requirements /
+> setup_env.bat / download_weights.py / generate.py），venv 与 25GB 权重由 `.gitignore` 排除。
+> 详见 `imagegen_poc/README.md`。
+
 | 项 | 结果 |
 |---|---|
-| 本地 main | `ee82f3f`，工作区干净（仅新增本目录文档） |
-| 远程 main | `ee82f3f`（`https://github.com/Alex-Wang-88/toolbox.git`） |
+| 本地 main | `e75ab7a`（最终），工作区干净 |
+| 远程 main | `e75ab7a`（`https://github.com/Alex-Wang-88/toolbox.git`） |
 | 本地分支 | 只剩 `main` |
 | 远程分支 | 只剩 `main`（4 条旧分支已删除） |
 | 备份 | 6 个 `pre-merge-20261106/*` tag 已推送，可随时取回任一被删分支 |
@@ -210,9 +214,16 @@ edge 分支要求保留原稿标点/空格，两者互斥。合并统一以主�
 2. **网络通道**：SSH（`ssh.github.com:443`）连接被重置；HTTPS 首次 push 报
    `curl 52 Empty reply from server`。本机 `HTTPS_PROXY=http://127.0.0.1:59363` 对 HTTP/2 POST
    处理不稳，改用 `git -c http.version=HTTP/1.1 -c http.postBuffer=524288000 push ...` 一次成功。
-   以后在这台机推 GitHub 若再遇 RPC failed，直接用这组参数。
+   后续推送同样参数又偶发 `curl 52`，确认根因是本机 `HTTPS_PROXY=http://127.0.0.1:59363`
+   对 git 的 POST 不稳定。**最终可靠做法是完全绕开代理**：
+   `env -u HTTPS_PROXY -u HTTP_PROXY -u ALL_PROXY git -c http.version=HTTP/1.1 push <url> main:main`，
+   一次成功。以后这台机推 GitHub 优先用这条。
 
 ### 5.2 后续
 
 MOSS-Image 已定为选型，体验环境按「独立 venv + 复用 gpu_arbiter」搭建；
 按 spec-first 先出方案再写代码，不把生图逻辑揉进主流程。
+
+POC 当前进度：骨架已提交推送；依赖安装与 25.36 GB 权重下载是两阶段长任务，
+权重从 ModelScope（`OpenMOSS/MOSS-Image-SFT`）拉取，支持断点续传。
+出图验证（Windows + sm_120 + CPU offload）尚未执行，结果出来前标 **BLOCKED**，不写作 PASS。
