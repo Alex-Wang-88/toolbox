@@ -2965,15 +2965,23 @@
             const gpuOn = c.gpu_accel
                 ? `<span class="gpu-on">开启</span>`
                 : `<span class="gpu-off">关闭</span>`;
+            // 克隆算力设备行：区分 NVIDIA CUDA 与 AMD ROCm 后端
+            let cloneRow = '';
+            if (c.clone_gpu_available) {
+                const be = c.clone_gpu_backend === 'rocm' ? 'ROCm' : 'CUDA';
+                const vram = c.clone_gpu_vram_gb ? ` · ${c.clone_gpu_vram_gb} GB` : '';
+                cloneRow = `<div class="row"><span>克隆算力</span><b>${escapeHtml((c.clone_gpu_name || 'GPU') + ' · ' + be + vram)}</b></div>`;
+            }
             document.getElementById('gpuGrid').innerHTML = `
                 <div class="row"><span>GPU 加速</span><b>${gpuOn}</b></div>
                 <div class="row"><span>CUDA 设备</span><b>${escapeHtml(c.cuda_device || 'CPU')}</b></div>
+                ${cloneRow}
                 <div class="row"><span>字幕对齐</span><b>${escapeHtml(align)}</b></div>
                 <div class="row"><span>Whisper 模型</span><b>${escapeHtml(c.whisper_model || 'base')}</b></div>
                 <div class="row"><span>NVENC 编码</span><b>${escapeHtml(nvenc)}</b></div>
             `;
             // 有 GPU 时默认展开
-            document.getElementById('gpuDetails').open = !!c.gpu_accel;
+            document.getElementById('gpuDetails').open = !!(c.gpu_accel || c.clone_gpu_available);
         }
 
         /* ===== 旁白 / 音色 GPU 加速状态显示（只读，后端无 /gpu-voice/* 路由） ===== */
@@ -2991,13 +2999,22 @@
                 const voicesData = voicesResp.ok ? (await safeReadJson(voicesResp)) : { voices: [] };
                 const hasCosyvoice3 = (voicesData.voices || []).some((v) => v.type === 'cosyvoice3');
                 const cosy3Ready = (voicesData.voices || []).some((v) => v.type === 'cosyvoice3' && v.available !== false);
+                // clone_gpu_* 由后端独立探测（NVIDIA CUDA / AMD ROCm 双后端）；
+                // 老版本后端没有这些字段时回退到 gpu_accel，保持兼容。
+                const cloneAvail = (cfg.clone_gpu_available !== undefined)
+                    ? !!cfg.clone_gpu_available
+                    : !!cfg.gpu_accel;
+                // 就绪状态以「当前选中引擎」的服务端判定为准；缺失时回退到旧逻辑。
+                const activeEng = voicesData.clone_engine || 'gptsovits';
+                const activeEngInfo = (voicesData.engines || {})[activeEng];
                 gpuVoiceState = {
-                    hardware_capable: !!cfg.gpu_accel,
-                    gpu_name: cfg.cuda_device || null,
-                    gpu_accel_enabled: !!cfg.gpu_accel,
-                    has_dependency: cosy3Ready,
+                    hardware_capable: cloneAvail,
+                    gpu_name: cfg.clone_gpu_name || cfg.cuda_device || null,
+                    gpu_backend: cfg.clone_gpu_backend || null,
+                    gpu_accel_enabled: cloneAvail,
+                    has_dependency: activeEngInfo ? !!activeEngInfo.ready : cosy3Ready,
                     has_cosyvoice3_voice: hasCosyvoice3,
-                    clone_engine: voicesData.clone_engine || 'gptsovits',
+                    clone_engine: activeEng,
                     engines: voicesData.engines || null,
                 };
                 activeCloneEngine = gpuVoiceState.clone_engine;
@@ -3022,7 +3039,8 @@
                 return;
             }
 
-            const gpuName = escapeHtml(s.gpu_name || 'NVIDIA GPU');
+            const backendTag = s.gpu_backend === 'rocm' ? ' · AMD ROCm' : '';
+            const gpuName = escapeHtml((s.gpu_name || 'GPU') + backendTag);
             let html = `<div class="gpu-voice-info">${gpuName}</div>`;
 
             if (s.gpu_accel_enabled && s.has_dependency) {
@@ -3044,8 +3062,8 @@
                         const info = s.engines[eng] || {};
                         const active = eng === s.clone_engine;
                         const disabled = !info.ready && !active;
-                        const title = info.reason || (active ? '当前克隆引擎' : `切换到 ${engineName(eng)}`);
-                        return `<button type="button" class="secondary" data-clone-engine="${eng}"${active ? ' data-active="1"' : ''}${disabled ? ' disabled' : ''} title="${escapeAttribute(title)}">${engineName(eng)}${active ? ' ✓' : ''}</button>`;
+                        const title = info.reason || (active ? '当前克隆引擎' : `切换到 ${engineNameOf(eng)}`);
+                        return `<button type="button" class="secondary" data-clone-engine="${eng}"${active ? ' data-active="1"' : ''}${disabled ? ' disabled' : ''} title="${escapeAttribute(title)}">${engineNameOf(eng)}${active ? ' ✓' : ''}</button>`;
                     }).join('')
                     + `</div>`;
             }

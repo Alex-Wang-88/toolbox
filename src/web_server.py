@@ -1126,6 +1126,18 @@ def get_config():
         config["nvenc_preset"] = pipeline.NVENC_PRESET
         config["nvenc_cq"] = pipeline.NVENC_CQ
         hardware_capable, gpu_name, _ = gpu_setup.detect_hardware_capable()
+        # 本地语音克隆的独立算力探测：支持 NVIDIA CUDA 与 AMD ROCm 两种后端。
+        # 注意不要复用上面的 hardware_capable —— 它同时被 NVENC 与 faster-whisper(CUDA)
+        # 复用，而这两者在 AMD 上不可用。
+        clone_capable, clone_backend, clone_name, clone_vram = (
+            gpu_setup.detect_clone_gpu_capable(
+                force=request.args.get("force") == "1"
+            )
+        )
+        config["clone_gpu_available"] = bool(clone_capable)
+        config["clone_gpu_backend"] = clone_backend or None
+        config["clone_gpu_name"] = clone_name or None
+        config["clone_gpu_vram_gb"] = clone_vram or None
         config["whisper_available"] = bool(
             pipeline.USE_GPU_ACCEL
             and hardware_capable

@@ -11,6 +11,7 @@
 """
 
 import os
+import re
 import sys
 import json
 import shutil
@@ -101,6 +102,23 @@ def detect_hardware_capable():
         return False, "", 0.0
 
 
+def _engine_venv_python(venv_name):
+    """返回指定推理 venv 的 python 可执行文件路径；不存在返回 None。
+
+    venv_name 例如 "venv_cosyvoice" / "venv_gptsovits"，位于 tts_poc/ 下。
+    """
+    root = _project_root()
+    for rel in (
+        os.path.join(venv_name, "Scripts", "python.exe"),
+        os.path.join(venv_name, "bin", "python"),
+        os.path.join(venv_name, "bin", "python3"),
+    ):
+        cand = os.path.join(root, "tts_poc", rel)
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
 def check_dependency():
     """本地克隆引擎已统一为 CosyVoice3，真实探测推理依赖是否就绪。
 
@@ -124,17 +142,7 @@ def check_dependency():
     ]
     if not all(os.path.isfile(os.path.join(model_dir, f)) for f in needed):
         return (False, None)
-    venv_py = None
-    for rel in (
-        os.path.join("venv_cosyvoice", "Scripts", "python.exe"),
-        os.path.join("venv_cosyvoice", "bin", "python"),
-        os.path.join("venv_cosyvoice", "bin", "python3"),
-    ):
-        cand = os.path.join(root, "tts_poc", rel)
-        if os.path.isfile(cand):
-            venv_py = cand
-            break
-    if not venv_py:
+    if not _engine_venv_python("venv_cosyvoice"):
         return (False, None)
     matcha = os.path.join(root, "tts_poc", "CosyVoice", "third_party", "Matcha-TTS")
     if not os.path.isdir(matcha):
@@ -166,15 +174,9 @@ def check_dependency_gptsovits():
     ]
     if not all(os.path.isfile(os.path.join(pm, f)) for f in needed):
         return (False, None)
-    for rel in (
-        os.path.join("venv_gptsovits", "Scripts", "python.exe"),
-        os.path.join("venv_gptsovits", "bin", "python"),
-        os.path.join("venv_gptsovits", "bin", "python3"),
-    ):
-        cand = os.path.join(root, "tts_poc", rel)
-        if os.path.isfile(cand):
-            return (True, repo)
-    return (False, None)
+    if not _engine_venv_python("venv_gptsovits"):
+        return (False, None)
+    return (True, repo)
 
 
 def check_dependency_for(engine: str):
@@ -182,6 +184,219 @@ def check_dependency_for(engine: str):
     if (engine or "").strip().lower() == "gptsovits":
         return check_dependency_gptsovits()
     return check_dependency()
+
+
+# ===================== 克隆算力探测（NVIDIA CUDA / AMD ROCm 双后端）=====================
+# 设计说明：
+# - `detect_hardware_capable()` 语义保持不变，仅代表「NVIDIA GPU + 显存达标」，
+#   因为下游的 NVENC 编码与 faster-whisper(CUDA) 都只认 N 卡，不能复用该结果。
+# - 本地语音克隆走独立探测：N 卡走 nvidia-smi 快路径；A 卡读注册表拿型号/显存，
+#   并校验克隆引擎 venv 内装的是否为 ROCm 版 torch。
+#   两者都无需 import torch（保持无 GPU 机器也能安全调用）。
+
+MIN_CLONE_VRAM_GB = 6.0
+
+# 克隆引擎推理 venv（按优先级探测 ROCm 版 torch）
+CLONE_ENGINE_VENVS = ("venv_cosyvoice", "venv_gptsovits")
+
+# AMD 显示适配器类 GUID（HKLM\SYSTEM\CurrentControlSet\Control\Class\{...}\000N）
+_DISPLAY_CLASS_KEY = (
+    r"SYSTEM\CurrentControlSet\Control\Class"
+    r"\{4d36e968-e325-11ce-bfc1-08002be10318}"
+)
+
+_CLONE_GPU_CACHE = None       # (capable, backend, name, vram_gb)
+_AMD_ADAPTER_CACHE = None     # [(name, vram_gb), ...]
+
+
+def _reg_value(key, name):
+    """读注册表值，取不到返回 None。"""
+    import winreg
+    try:
+        value, _kind = winreg.QueryValueEx(key, name)
+        return value
+    except OSError:
+        return None
+
+
+def _windows_amd_adapters():
+    """枚举本机 AMD 显卡型号与真实显存（GB）。
+
+    显存取注册表 HardwareInformation.qwMemorySize（REG_QWORD，字节），
+    不能用 WMI 的 AdapterRAM —— 它是 32 位字段，>4GB 的卡会溢出显示成 4GB。
+    """
+    global _AMD_ADAPTER_CACHE
+    if _AMD_ADAPTER_CACHE is not None:
+        return _AMD_ADAPTER_CACHE
+
+    adapters = []
+    if os.name == "nt":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _DISPLAY_CLASS_KEY) as root:
+                for idx in range(64):
+                    try:
+                        sub_name = winreg.EnumKey(root, idx)
+                    except OSError:
+                        break
+                    if not sub_name.isdigit():
+                        continue
+                    try:
+                        with winreg.OpenKey(root, sub_name) as sub:
+                            desc = _reg_value(sub, "DriverDesc") or ""
+                            size = _reg_value(sub, "HardwareInformation.qwMemorySize")
+                    except OSError:
+                        continue
+                    if "radeon" not in str(desc).lower():
+                        continue
+                    vram_gb = round(float(size or 0) / (1024.0 ** 3), 1)
+                    adapters.append((str(desc), vram_gb))
+        except Exception:
+            adapters = []
+
+    _AMD_ADAPTER_CACHE = adapters
+    return adapters
+
+
+def _rocm_torch_build(venv_name="venv_cosyvoice"):
+    """读取指定 venv 里 torch 的构建信息（不 import torch，直接读 version.py）。
+
+    返回 {'venv': , 'torch': '2.9.1+rocm7.2.1', 'hip': '7.2.xxx', 'is_rocm': bool} 或 None。
+    """
+    venv_py = _engine_venv_python(venv_name)
+    if not venv_py:
+        return None
+    # venv_py = .../<venv>/Scripts/python.exe → 回到 venv 根
+    venv_root = os.path.dirname(os.path.dirname(venv_py))
+    candidates = [
+        os.path.join(venv_root, "Lib", "site-packages", "torch", "version.py"),
+    ]
+    lib_dir = os.path.join(venv_root, "lib")
+    if os.path.isdir(lib_dir):
+        for entry in os.listdir(lib_dir):
+            if entry.startswith("python3"):
+                candidates.append(
+                    os.path.join(lib_dir, entry, "site-packages", "torch", "version.py")
+                )
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        info = {"venv": venv_name, "torch": "", "hip": "", "is_rocm": False}
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except OSError:
+            return None
+        # version.py 形如：
+        #   __version__ = '2.9.1+rocm7.2.1'
+        #   hip: Optional[str] = '7.2.53211-158bd99533'
+        # 注意 hip 那行带类型注解，不能简单按 "hip =" 匹配。
+        m = re.search(r"__version__\s*=\s*['\"]([^'\"]+)", content)
+        if m:
+            info["torch"] = m.group(1)
+        m = re.search(r"^hip\s*(?::[^=]+)?=\s*['\"]?([^'\"\r\n]+)", content, re.MULTILINE)
+        if m:
+            info["hip"] = m.group(1).strip()
+        info["is_rocm"] = bool(info["hip"]) and (
+            info["hip"].lower() not in {"none", ""} or "rocm" in info["torch"].lower()
+        )
+        return info
+    return None
+
+
+def detect_clone_gpu_capable(force=False):
+    """判定本机是否具备本地语音克隆的 GPU 算力。
+
+    返回 (capable: bool, backend: str, gpu_name: str, vram_gb: float)，
+    backend ∈ {'cuda', 'rocm', ''}。结果按进程缓存，force=True 可强制重探。
+    """
+    global _CLONE_GPU_CACHE
+    if _CLONE_GPU_CACHE is not None and not force:
+        return _CLONE_GPU_CACHE
+
+    # 1) NVIDIA：复用既有 nvidia-smi 判定，语义与 detect_hardware_capable 一致
+    capable, name, vram = detect_hardware_capable()
+    if capable:
+        _CLONE_GPU_CACHE = (True, "cuda", name, vram)
+        return _CLONE_GPU_CACHE
+
+    # 2) AMD Radeon + 任一克隆引擎 venv 内的 ROCm 版 torch
+    #    （Windows 原生 ROCm 仅支持 RDNA3/4 等新卡）
+    amd = _windows_amd_adapters()
+    if amd:
+        build = None
+        for venv_name in CLONE_ENGINE_VENVS:
+            build = _rocm_torch_build(venv_name)
+            if build and build.get("is_rocm"):
+                break
+            build = None
+        if build:
+            best_name, best_vram = max(amd, key=lambda item: item[1])
+            _CLONE_GPU_CACHE = (
+                best_vram >= MIN_CLONE_VRAM_GB, "rocm", best_name, best_vram
+            )
+            return _CLONE_GPU_CACHE
+
+    _CLONE_GPU_CACHE = (False, "", "", 0.0)
+    return _CLONE_GPU_CACHE
+
+
+_ROCM_PROBE_CODE = (
+    "import json\n"
+    "info = {'ok': False, 'name': '', 'vram_gb': 0.0}\n"
+    "try:\n"
+    "    import torch\n"
+    "    info['torch'] = torch.__version__\n"
+    "    info['hip'] = getattr(torch.version, 'hip', None)\n"
+    "    info['avail'] = bool(torch.cuda.is_available())\n"
+    "    if info['avail']:\n"
+    "        prop = torch.cuda.get_device_properties(0)\n"
+    "        info['name'] = torch.cuda.get_device_name(0)\n"
+    "        info['vram_gb'] = round(prop.total_memory / (1024 ** 3), 1)\n"
+    "        info['ok'] = True\n"
+    "except Exception as exc:\n"
+    "    info['error'] = str(exc)[:300]\n"
+    "print(json.dumps(info))\n"
+)
+
+
+def probe_clone_gpu_deep(timeout=300, engine=None):
+    """在克隆引擎 venv 里真实跑一次 torch 探测（较慢，仅供诊断/强制刷新）。
+
+    这是唯一能证明「ROCm 驱动栈 + torch + 显卡」真正串通的检查，
+    比读 version.py 更强，但首次 import torch 可能需要十几秒，不要在热路径调用。
+    engine 可传 "gptsovits" 指定用其 venv，缺省用 CosyVoice3 的 venv。
+    """
+    venv_name = (
+        "venv_gptsovits"
+        if (engine or "").strip().lower() == "gptsovits"
+        else "venv_cosyvoice"
+    )
+    venv_py = _engine_venv_python(venv_name)
+    if not venv_py:
+        return {"ok": False, "error": f"{venv_name} 不存在"}
+    try:
+        res = _run([venv_py, "-c", _ROCM_PROBE_CODE], timeout=timeout)
+    except Exception as exc:
+        return {"ok": False, "error": f"探测进程执行失败: {exc}"}
+    payload = None
+    for line in reversed((res.stdout or "").strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                payload = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+    if payload is None:
+        return {
+            "ok": False,
+            "error": (res.stderr or res.stdout or "无输出").strip()[-300:],
+            "returncode": res.returncode,
+        }
+    payload["returncode"] = res.returncode
+    payload["venv"] = venv_name
+    return payload
 
 
 def load_gpu_voice_settings(data_root):
