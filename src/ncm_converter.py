@@ -346,6 +346,13 @@ def _transcode_audio(
         raise NCMError(f"FFmpeg 音频转码失败：{detail}")
 
 
+def decode_ncm(source_path: str, output_path: str, progress_callback=None) -> dict:
+    """Decode only; consumers detect the resulting audio by its contents."""
+    container = _parse_container(source_path)
+    _decode_audio_payload(source_path, output_path, container, progress_callback)
+    return dict(container["info"])
+
+
 def convert_ncm(
     source_path: str,
     output_path: str,

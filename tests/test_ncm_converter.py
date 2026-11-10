@@ -138,15 +138,18 @@ class NCMWebPageTests(unittest.TestCase):
         client = web_server.app.test_client()
         page = client.get("/audio-converter")
         self.assertEqual(page.status_code, 200)
-        self.assertIn("NCM 音频转换".encode("utf-8"), page.data)
+        self.assertIn("音频转换".encode("utf-8"), page.data)
+        self.assertIn(b'id="formatSelect"', page.data)
+        self.assertIn("输入格式：自动识别".encode("utf-8"), page.data)
         self.assertIn(b"id=\"fileInput\"", page.data)
         self.assertIn(b"multiple", page.data)
-        self.assertIn(b".spinner { animation: converter-spinner 1.2s linear infinite !important; }", page.data)
+        self.assertIn(b'href="/ui.css"', page.data)
+        self.assertIn(b"animation:", client.get("/ui.css").data)
         self.assertNotIn(b".spinner.js-motion { animation: none; }", page.data)
 
         with mock.patch.object(
-            web_server, "ncm_converter_status",
-            return_value={"ready": True, "engine": "NCM"},
+            web_server, "audio_conversion_status",
+            return_value={"ready": True, "engine": "FFmpeg", "output_formats": ["wav", "mp3"]},
         ):
             response = client.get("/api/audio-converter/status")
         body = response.get_json()

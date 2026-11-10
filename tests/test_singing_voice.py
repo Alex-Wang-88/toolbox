@@ -312,29 +312,15 @@ class SingingApiTests(unittest.TestCase):
         self.assertIn("自动分离人声并保留原伴奏", page)
 
     def test_page_exposes_settings_palette_and_animated_progress_feedback(self):
-        import web_server
-
-        response = web_server.app.test_client().get("/singing")
-        page = response.data.decode("utf-8")
-        self.assertIn('id="settingsToggle"', page)
-        self.assertIn('id="settingsPanel"', page)
-        self.assertIn('id="colorWheelButton"', page)
-        self.assertIn('id="colorWheelCenter"', page)
-        self.assertIn('name="themeMode"', page)
+        page = Path(PROJECT_ROOT, 'static/singing.html').read_text(encoding='utf-8')
+        shared = Path(PROJECT_ROOT, 'static/ui.css').read_text(encoding='utf-8')
+        self.assertIn('src="/theme.js"', page)
+        self.assertIn('src="/workspace.js"', page)
+        self.assertIn('data-advanced="pitch"', page)
+        self.assertIn('id="autoPitchInput"', page)
         self.assertIn('aria-busy="false"', page)
-        self.assertIn('--accent: #2b5cff', page)
-        self.assertIn('--bg: #f5f7fb', page)
-        self.assertIn('--bg: #090e1a', page)
-        self.assertIn("@keyframes singing-spinner", page)
-        self.assertIn("@keyframes progress-flow", page)
-        self.assertIn("startSpinnerMotion", page)
-        self.assertIn("requestAnimationFrame", page)
-        self.assertIn(".spinner { animation: singing-spinner 1.2s linear infinite !important; }", page)
-        self.assertNotIn(".spinner.js-motion { animation: none; }", page)
-        self.assertNotIn("spinner.style.transform = `rotate", page)
-        self.assertNotIn('id="themeToggle"', page)
-        self.assertNotIn("精准选择", page)
-        self.assertIn("pointerdown", page)
+        self.assertIn('@keyframes', shared)
+        self.assertIn('prefers-reduced-motion', shared)
 
     def test_convert_returns_setup_error_before_accepting_upload(self):
         import web_server

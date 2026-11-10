@@ -2,6 +2,14 @@
 
 This project supports the following third-party local voice clone engine:
 
+- **GPT-SoVITS V5** (`tts_poc/GPT-SoVITS`): RVC-Boss 开源的少样本/零样本语音克隆模型
+  （MIT License），作为默认本地克隆引擎。代码位于 `tts_poc/GPT-SoVITS/`，V5 推理权重
+  位于 `tts_poc/GPT-SoVITS/GPT_SoVITS/pretrained_models/`（s1v3.ckpt + gsv-v5-pretrained +
+  chinese-hubert-base + chinese-roberta-wwm-ext-large），运行在独立 venv
+  `tts_poc/venv_gptsovits` 中，通过子进程 JSON-RPC（`src/tts_workers/gptsovits_worker.py`）
+  被主流程调用。GPT-SoVITS 代码为 MIT 许可；预训练权重遵循其发布页说明，
+  商用或大规模使用前请审阅其原始协议。
+
 - **CosyVoice 3** (`tts_poc/CosyVoice`): 阿里通义实验室开源的零样本语音克隆模型，
   模型权重位于 `tts_poc/models/CosyVoice3-0.5B/`，运行在独立 venv
   `tts_poc/venv_cosyvoice` 中，通过子进程 JSON-RPC（`src/tts_workers/cosyvoice3_worker.py`）

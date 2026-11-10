@@ -882,7 +882,7 @@ def _audio_duration_local(path: str) -> float:
     return _wav_duration_local(path)
 
 def batch_generate_tts(speech_dict: Dict[int, str], image_info_list: List[Dict]=None, voice: str='default', data_root: str=None, speech_speed: float=1.0, progress_callback=None) -> List[Dict]:
-    """生成全部配音（分段级缓存 + CosyVoice3 Worker 常驻）。
+    """生成全部配音（分段级缓存 + 克隆引擎 Worker 常驻：GPT-SoVITS V5 / CosyVoice3）。
 
 重构后流程：
 1. 对每页文本用 TextSegmenter 分段
@@ -941,13 +941,37 @@ def batch_generate_tts(speech_dict: Dict[int, str], image_info_list: List[Dict]=
     cache_mgr = None
     ref_text_for_synth = ''
     from paths import PROJECT_ROOT, SRC_DIR
-    if meta.type == 'cosyvoice3':
+    # 克隆引擎选择（GPT-SoVITS V5 / CosyVoice3）：音色的 ref_audio + ref_text 与
+    # 引擎无关，可互换；激活引擎由 tts_engine_settings 决定，未就绪时回落 CosyVoice3。
+    from tts_engine_settings import get_clone_engine, CLONE_ENGINE_GPTSOVITS
+    active_engine = get_clone_engine(data_root)
+    if active_engine == CLONE_ENGINE_GPTSOVITS:
+        from gpu_setup import check_dependency_gptsovits
+        gsv_ok, _gsv_dir = check_dependency_gptsovits()
+        if not gsv_ok:
+            print('[WARN] GPT-SoVITS V5 未就绪（缺仓库/权重/venv），克隆引擎回落 CosyVoice3')
+            active_engine = 'cosyvoice3'
+    if active_engine == CLONE_ENGINE_GPTSOVITS:
+        from multi_tts_voice import MultiTtsWorkerClient, resolve_gptsovits_python
+        # V5 变体（v5turbo=4步蒸馏速度版 / v5dev=32步标准版）：与 Worker 同源读取
+        # 环境变量 GPTSOVITS_VERSION；版本编入 engine_name/engine_tag，dev/turbo 缓存互不串。
+        gsv_version = os.environ.get('GPTSOVITS_VERSION', 'v5turbo').strip().lower()
+        if gsv_version not in ('v5dev', 'v5turbo'):
+            gsv_version = 'v5turbo'
+        # model_dir=仓库根目录（Worker 以其为 CWD 并作为 --model_dir）
+        gsv_repo = os.path.normpath(os.path.join(PROJECT_ROOT, 'tts_poc', 'GPT-SoVITS'))
+        client = MultiTtsWorkerClient.get_instance(engine_name=f'gptsovits_{gsv_version}', worker_path=os.path.join(SRC_DIR, 'tts_workers', 'gptsovits_worker.py'), venv_python=resolve_gptsovits_python(), model_dir=gsv_repo, engine_tag=f'gptsovits_{gsv_version}', data_root=data_root)
+        ref_text_for_synth = meta.ref_text or ''
+        client.set_ref_text(ref_text_for_synth)
+        client.set_language(getattr(meta, 'language', '') or '')
+        cache_mgr = client.cache_manager
+    else:
         from multi_tts_voice import MultiTtsWorkerClient, resolve_cosyvoice3_python
         cosy3_model = os.path.normpath(os.path.join(PROJECT_ROOT, 'tts_poc', 'models', 'CosyVoice3-0.5B'))
         client = MultiTtsWorkerClient.get_instance(engine_name='cosyvoice3', worker_path=os.path.join(SRC_DIR, 'tts_workers', 'cosyvoice3_worker.py'), venv_python=resolve_cosyvoice3_python(), model_dir=cosy3_model, engine_tag='cosyvoice3', data_root=data_root)
-        cache_mgr = client.cache_manager
         ref_text_for_synth = meta.ref_text or ''
         client.set_ref_text(ref_text_for_synth)
+        cache_mgr = client.cache_manager
 
     def _report(done, total, msg):
         if callable(progress_callback):

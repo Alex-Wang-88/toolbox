@@ -12,8 +12,11 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import threading
 import time
+import math
+from background_runtime import process_options, bounded_env
 
 from ffmpeg_util import resolve_ffprobe
 from paths import PROJECT_ROOT
@@ -225,15 +228,25 @@ def _probe_runtime(config: SeedVCConfig):
             return _RUNTIME_PROBE_CACHE[cache_key]
 
     probe = (
-        "import importlib.util; "
-        "mods=['torch','torchaudio','librosa','yaml','munch','transformers','einops','scipy','soundfile','audiotools','dac']; "
-        "missing=[m for m in mods if importlib.util.find_spec(m) is None]; "
-        "print(','.join(missing)); raise SystemExit(1 if missing else 0)"
+        "import importlib.util\n"
+        "mods = ['torch','torchaudio','librosa','yaml','munch','transformers','einops','scipy','soundfile','audiotools','dac']\n"
+        "missing = [m for m in mods if importlib.util.find_spec(m) is None]\n"
+        "print(','.join(missing))\n"
+        "if missing:\n"
+        "    raise SystemExit(1)\n"
+        # find_spec 只能确认包存在；实际 import 一次才能暴露 standard-chunk
+        # 这类“包装了但文件缺失”的损坏环境。
+        "try:\n"
+        "    import librosa\n"
+        "except Exception as exc:\n"
+        "    print(f'{type(exc).__name__}: {exc}')\n"
+        "    raise SystemExit(1)\n"
     )
     try:
         result = subprocess.run(
             [config.python, "-c", probe],
             cwd=config.root if os.path.isdir(config.root) else PROJECT_ROOT,
+            **process_options(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -336,6 +349,7 @@ def probe_audio_duration(path: str):
                 "-of", "json",
                 path,
             ],
+            **process_options(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -382,6 +396,145 @@ def validate_source(path: str) -> dict:
 
 def _bool_arg(value: bool) -> str:
     return "True" if bool(value) else "False"
+
+
+def _local_models_ready(config: SeedVCConfig) -> bool:
+    """True when Seed-VC's HuggingFace cache already lives on disk."""
+
+    cache = os.path.join(config.root, "checkpoints")
+    required = (
+        os.path.join(cache, "models--Plachta--Seed-VC"),
+        os.path.join(cache, "models--funasr--campplus"),
+    )
+    return all(os.path.isdir(path) for path in required)
+
+
+def _engine_env(config: SeedVCConfig) -> dict:
+    """Environment for the Seed-VC child process.
+
+    Seed-VC resolves its weights through ``hf_hub_download``, which performs a
+    HEAD request against huggingface.co even when the files are already cached.
+    On networks where that host is blocked the request dies with an SSL error
+    and the whole conversion fails even though every weight is local.  Force
+    offline mode whenever the cache is present; set
+    ``SINGING_VC_ALLOW_DOWNLOAD=1`` to opt back into network access (for a
+    first run that still needs to fetch the weights).
+    """
+
+    env = bounded_env()
+    allow_download = str(env.get("SINGING_VC_ALLOW_DOWNLOAD") or "").strip().lower()
+    if allow_download not in {"1", "true", "yes", "on"} and _local_models_ready(config):
+        env["HF_HUB_OFFLINE"] = "1"
+        env["TRANSFORMERS_OFFLINE"] = "1"
+    return env
+
+
+def _format_failure(stdout_text: str, stderr_text: str, limit: int = 4) -> str:
+    """Pick the lines that actually explain a Seed-VC failure.
+
+    Tracebacks go to stderr, while progress output goes to stdout; the old code
+    only looked at stdout and reported "未提供错误详情".
+    """
+
+    lines = [line.strip() for line in (stderr_text or "").splitlines() if line.strip()]
+    if not lines:
+        lines = [line.strip() for line in (stdout_text or "").splitlines() if line.strip()]
+    keywords = (
+        "Error", "Exception", "error:", "Traceback", "CUDA", "out of memory",
+        "No such file", "Cannot", "not found", "failed",
+    )
+    hits = [line for line in lines if any(key in line for key in keywords)]
+    chosen = hits[-limit:] if hits else lines[-limit:]
+    return "；".join(chosen) if chosen else "未提供错误详情"
+
+
+def probe_pitch_profile(source_path: str, reference_path: str, timeout_sec: int = 180) -> dict:
+    """Measure both voices' pitch range in the Seed-VC environment.
+
+    Returns ``{"ok": True, "source": {...}, "reference": {...}}`` or
+    ``{"ok": False, "error": "..."}``.  Failure is non-fatal: callers simply
+    skip automatic transposition.
+    """
+
+    config = get_config()
+    script = os.path.join(PROJECT_ROOT, "scripts", "voice_pitch_probe.py")
+    if not os.path.isfile(script):
+        return {"ok": False, "error": "缺少音域探测脚本"}
+    if not os.path.isfile(source_path) or not os.path.isfile(reference_path):
+        return {"ok": False, "error": "音域探测的输入文件不存在"}
+
+    fd, out_path = tempfile.mkstemp(prefix="pitch_probe_", suffix=".json")
+    os.close(fd)
+    try:
+        result = subprocess.run(
+            [
+                config.python, script,
+                "--source", os.path.abspath(source_path),
+                "--reference", os.path.abspath(reference_path),
+                "--root", config.root,
+                "--out", out_path,
+            ],
+            cwd=PROJECT_ROOT,
+            env=_engine_env(config),
+            **process_options(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=max(60, int(timeout_sec)),
+        )
+        if not os.path.isfile(out_path):
+            detail = (result.stderr or result.stdout or "").strip().splitlines()
+            return {"ok": False, "error": detail[-1] if detail else "音域探测没有输出"}
+        with open(out_path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "音域探测超时"}
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return {"ok": False, "error": f"音域探测失败：{exc}"}
+    finally:
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+
+
+def suggest_pitch_shift(profile: dict, max_shift: int = 5):
+    """Move the song only when the vocal sits outside the voice's range.
+
+    The rule is deliberately simple and predictable:
+
+    * if the source's median pitch already falls inside the reference voice's
+      range, leave the song alone;
+    * otherwise transpose just enough to bring that median to the nearest edge
+      of the reference range, capped at ``max_shift`` semitones.
+
+    Full alignment to the reference median would move a song by ~10 semitones
+    and change its key; partial alignment at the edge already removes most of
+    the "singing at the limit" artifact.
+
+    Returns ``(semitones, reason)``.
+    """
+
+    try:
+        source = profile["source"]
+        reference = profile["reference"]
+        s_mid = float(source["p50"])
+        r_lo, r_hi = float(reference["p10"]), float(reference["p90"])
+    except (KeyError, TypeError, ValueError):
+        return 0, ""
+    if not all(math.isfinite(v) for v in (s_mid, r_lo, r_hi)) or s_mid <= 0 or r_lo <= 0 or r_hi <= r_lo:
+        return 0, ""
+
+    if r_lo <= s_mid <= r_hi:
+        return 0, f"源音高中位 {s_mid:.0f}Hz 已在音色音域内"
+
+    target = r_lo if s_mid < r_lo else r_hi
+    shift = int(round(12 * math.log2(target / s_mid)))
+    shift = max(-max_shift, min(max_shift, shift))
+    if shift == 0:
+        return 0, f"源音高中位 {s_mid:.0f}Hz 已接近音色音域边界"
+    return shift, f"源中位 {s_mid:.0f}Hz，音色音域 {r_lo:.0f}–{r_hi:.0f}Hz"
 
 
 def build_command(
@@ -455,6 +608,8 @@ def run_conversion(
         result = subprocess.run(
             command,
             cwd=config.root,
+            env=_engine_env(config),
+            **process_options(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -473,8 +628,7 @@ def run_conversion(
         for line in output_text.splitlines()[-20:]:
             progress_callback(line)
     if result.returncode != 0:
-        tail = output_text.splitlines()[-5:]
-        detail = "；".join(tail) if tail else "未提供错误详情"
+        detail = _format_failure(output_text, result.stderr or "")
         raise SingingVCError(f"Seed-VC 转换失败：{detail}")
 
     candidates = [

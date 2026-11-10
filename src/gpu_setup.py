@@ -142,6 +142,48 @@ def check_dependency():
     return (True, model_dir)
 
 
+def check_dependency_gptsovits():
+    """GPT-SoVITS V5 就绪探测（与 check_dependency 同款约定）。
+
+    校验项：
+    - 仓库 tts_poc/GPT-SoVITS（含 GPT_SoVITS/TTS_infer_pack/TTS.py）
+    - V5 推理权重齐全：s1v3.ckpt（GPT）、gsv-v5-pretrained/s2Gv5dev.pth（SoVITS）、
+      gsv-v5-pretrained/vocoder.pth、chinese-hubert-base、chinese-roberta-wwm-ext-large
+    - 推理 venv：tts_poc/venv_gptsovits 的 python
+    全部就位返回 (True, repo_dir)，否则 (False, None)。
+    """
+    root = _project_root()
+    repo = os.path.normpath(os.path.join(root, "tts_poc", "GPT-SoVITS"))
+    if not os.path.isfile(os.path.join(repo, "GPT_SoVITS", "TTS_infer_pack", "TTS.py")):
+        return (False, None)
+    pm = os.path.join(repo, "GPT_SoVITS", "pretrained_models")
+    needed = [
+        os.path.join("s1v3.ckpt"),
+        os.path.join("gsv-v5-pretrained", "s2Gv5dev.pth"),
+        os.path.join("gsv-v5-pretrained", "vocoder.pth"),
+        os.path.join("chinese-hubert-base", "pytorch_model.bin"),
+        os.path.join("chinese-roberta-wwm-ext-large", "pytorch_model.bin"),
+    ]
+    if not all(os.path.isfile(os.path.join(pm, f)) for f in needed):
+        return (False, None)
+    for rel in (
+        os.path.join("venv_gptsovits", "Scripts", "python.exe"),
+        os.path.join("venv_gptsovits", "bin", "python"),
+        os.path.join("venv_gptsovits", "bin", "python3"),
+    ):
+        cand = os.path.join(root, "tts_poc", rel)
+        if os.path.isfile(cand):
+            return (True, repo)
+    return (False, None)
+
+
+def check_dependency_for(engine: str):
+    """按引擎名分发就绪探测：gptsovits -> GPT-SoVITS V5；其余 -> CosyVoice3。"""
+    if (engine or "").strip().lower() == "gptsovits":
+        return check_dependency_gptsovits()
+    return check_dependency()
+
+
 def load_gpu_voice_settings(data_root):
     """读取 data_root/gpu_voice_settings.json；不存在返回 {'enabled': False}。"""
     path = os.path.join(data_root, "gpu_voice_settings.json")

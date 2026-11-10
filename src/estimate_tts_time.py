@@ -38,12 +38,15 @@ from text_segmenter import TextSegmenter
 # cosyvoice3：下面会被「实测值」覆盖；无缓存时用占位值。
 ENGINE_SEC_PER_CHAR = {
     "cosyvoice3": 0.30,   # 占位，运行时用缓存实测覆盖
+    "gptsovits": 0.15,    # 占位：GPT-SoVITS V5 推理更快（RTF~0.2 vs ~0.3+），实测后修正
 }
 ENGINE_MODEL_LOAD = {       # 模型加载/初始化一次性开销（秒）
     "cosyvoice3": 60,
+    "gptsovits": 45,      # v5 全量加载（GPT+SoVITS+vocoder+bert/hubert），fp16
 }
 ENGINE_LABEL = {
     "cosyvoice3": "CosyVoice3（零样本克隆·本机实测优先）",
+    "gptsovits": "GPT-SoVITS V5（零样本克隆·本机实测优先）",
 }
 BASE_SETUP = 30       # 转图 + 音色注册(已缓存=0) + 解说生成(云端~20s) + 杂项
 VIDEO_SYNTH = 30     # ffmpeg NVENC 合成（实测 ~29s，与字数弱相关）

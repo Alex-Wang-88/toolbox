@@ -15,6 +15,9 @@ def emit(payload):
 
 
 def main():
+    if os.name == "nt":
+        import ctypes
+        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)
     if len(sys.argv) not in (3, 4):
         raise RuntimeError("转写参数不完整")
     audio_path, model_path = sys.argv[1:3]
@@ -25,7 +28,7 @@ def main():
         model_path,
         device="cpu",
         compute_type="int8",
-        cpu_threads=max(1, min(8, os.cpu_count() or 4)),
+        cpu_threads=max(1, min(8, int(os.environ.get("TOOLBOX_CPU_THREADS", "4")))),
     )
     segments, info = model.transcribe(
         audio_path,

@@ -66,8 +66,8 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertEqual(duplicates, [])
 
     def test_frontend_exposes_only_1080p(self):
-        self.assertIn("1080p 高清", self.html)
-        self.assertNotIn("720p", self.html)
+        self.assertIn("1080p", self.html)
+        self.assertNotIn('value="720p"', self.html)
         self.assertNotIn("data-output-mode", self.html)
         self.assertNotIn("ttsLargeBatch", self.html)
         self.assertNotIn("outputNameInput", self.html)
@@ -86,12 +86,11 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertIn("async: true", self.html)
 
     def test_color_theme_toggle_is_accessible_and_persistent(self):
-        self.assertIn('id="themeToggle"', self.html)
-        self.assertIn('aria-pressed="false"', self.html)
-        self.assertIn("toolbox-color-theme", self.html)
-        self.assertIn('data-theme="dark"', self.html)
-        self.assertIn("background: #2d1820; color: #fda4af;", self.html)
-        self.assertIn("background: #241820; border-color: #8f3f52;", self.html)
+        theme = Path(PROJECT_ROOT, 'static/theme.js').read_text(encoding='utf-8')
+        self.assertIn('src="/theme.js"', self.html)
+        self.assertIn('toolbox-color-theme', theme)
+        self.assertIn('aria-expanded', theme)
+        self.assertIn('settings-toggle', theme)
 
     def test_voice_groups_are_shared_style_and_collapsed_by_default(self):
         self.assertIn("Edge TTS 云端音色", self.html)
@@ -140,7 +139,7 @@ class TtsFrontendTests(unittest.TestCase):
         self.assertIn("录音逐字稿（选填）", self.html)
         for language in ("auto", "zh", "en", "ja", "ko", "de", "es", "fr", "it", "ru"):
             self.assertIn(f'value="{language}"', self.html)
-        self.assertIn("waitForQuickTask", self.html)
+        self.assertIn("TaskResume.watch", self.html)
         self.assertIn("async: true", self.html)
         for control_id in (
             "voiceClipEditor", "voiceWaveform",
@@ -152,10 +151,9 @@ class TtsFrontendTests(unittest.TestCase):
         self.assertIn("voiceClipEditor.appendTo", self.html)
 
     def test_tts_page_uses_the_shared_color_theme_contract(self):
-        self.assertIn('id="themeToggle"', self.html)
-        self.assertIn('aria-pressed="false"', self.html)
-        self.assertIn("toolbox-color-theme", self.html)
-        self.assertIn('data-theme="dark"', self.html)
+        self.assertIn('src="/theme.js"', self.html)
+        self.assertIn('href="/ui.css"', self.html)
+        self.assertIn('data-advanced="voice"', self.html)
 
     def test_tts_voice_groups_match_main_page_and_start_collapsed(self):
         self.assertIn("Edge TTS 云端音色", self.html)
@@ -173,20 +171,12 @@ class GenerateResolutionTests(unittest.TestCase):
     def test_manuscript_generation_supports_async_progress_task(self):
         import web_server
 
-        class FakeThread:
-            def __init__(self, *args, **kwargs):
-                self.args = args
-                self.kwargs = kwargs
-
-            def start(self):
-                return None
-
         task_id = None
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as image:
             image.write(b"test")
             image_path = image.name
         try:
-            with mock.patch.object(web_server.threading, "Thread", FakeThread):
+            with mock.patch.object(web_server, "enqueue_task") as enqueue:
                 response = web_server.app.test_client().post("/api/generate-manuscript", json={
                     "image_items": [{"file": image_path, "name": "测试页面"}],
                     "async": True,
@@ -204,17 +194,9 @@ class GenerateResolutionTests(unittest.TestCase):
     def test_quick_tts_supports_async_progress_task(self):
         import web_server
 
-        class FakeThread:
-            def __init__(self, *args, **kwargs):
-                self.args = args
-                self.kwargs = kwargs
-
-            def start(self):
-                return None
-
         task_id = None
         try:
-            with mock.patch.object(web_server.threading, "Thread", FakeThread):
+            with mock.patch.object(web_server, "enqueue_task") as enqueue:
                 response = web_server.app.test_client().post("/api/tts/quick", json={
                     "text": "这是一段用于异步配音任务的测试文字。",
                     "voice": "default",
@@ -292,24 +274,12 @@ class GenerateResolutionTests(unittest.TestCase):
     def test_generate_api_ignores_legacy_720p_request(self):
         import web_server
 
-        class FakeThread:
-            created = None
-
-            def __init__(self, *args, **kwargs):
-                self.args = args
-                self.kwargs = kwargs
-                self.daemon = False
-                FakeThread.created = self
-
-            def start(self):
-                return None
-
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as image:
             image.write(b"test")
             image_path = image.name
         task_id = None
         try:
-            with mock.patch.object(web_server.threading, "Thread", FakeThread):
+            with mock.patch.object(web_server, "enqueue_task") as enqueue:
                 response = web_server.app.test_client().post("/api/generate", json={
                     "image_items": [{"file": image_path, "name": "测试画面"}],
                     "manuscript": [{"file": image_path, "text": "测试文稿"}],
@@ -320,7 +290,7 @@ class GenerateResolutionTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200, body)
             task_id = body["task_id"]
             self.assertEqual(web_server.tasks[task_id]["output_mode"], "1080p")
-            self.assertEqual(FakeThread.created.kwargs["kwargs"]["output_mode"], "1080p")
+            self.assertEqual(enqueue.call_args.kwargs["kwargs"]["output_mode"], "1080p")
         finally:
             if task_id:
                 web_server.tasks.pop(task_id, None)

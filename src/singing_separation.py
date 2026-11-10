@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import threading
 import time
+from background_runtime import process_options, bounded_env
 
 from ffmpeg_util import resolve_ffmpeg, resolve_ffprobe
 from paths import PROJECT_ROOT
@@ -92,7 +93,7 @@ def _executable_available(path: str) -> bool:
 def _runtime_env() -> dict:
     """Make the project's bundled FFmpeg visible to Demucs' internal reader."""
 
-    env = os.environ.copy()
+    env = bounded_env()
     ffmpeg = resolve_ffmpeg()
     ffprobe = resolve_ffprobe()
     dirs = []
@@ -124,6 +125,7 @@ def _probe_runtime(config: SeparationConfig):
             [config.python, "-c", probe],
             cwd=PROJECT_ROOT,
             env=_runtime_env(),
+            **process_options(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -236,6 +238,7 @@ def separate_song(
             command,
             cwd=PROJECT_ROOT,
             env=_runtime_env(),
+            **process_options(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -274,6 +277,71 @@ def separate_song(
     }
 
 
+def shift_pitch(
+    path: str,
+    semitones: int,
+    output_path: str = "",
+    timeout_sec: int = 600,
+) -> dict:
+    """Transpose a track by ``semitones`` while preserving its formants.
+
+    Used to move the accompaniment along with the converted vocal so the mix
+    stays in key after automatic range matching.  ``rubberband`` keeps the
+    timbre intact; naive resampling would shift formants and sound unnatural.
+    """
+
+    semitones = int(semitones or 0)
+    if semitones == 0:
+        return {"path": path, "shifted": False, "semitones": 0, "elapsed_sec": 0.0}
+
+    ffmpeg = resolve_ffmpeg()
+    if not _executable_available(ffmpeg):
+        raise SingingSeparationError("缺少 FFmpeg，无法移调伴奏")
+    if not os.path.isfile(path):
+        raise SingingSeparationError("待移调的音频不存在")
+
+    if not output_path:
+        stem, extension = os.path.splitext(path)
+        output_path = f"{stem}_shift{semitones:+d}{extension or '.wav'}"
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    factor = 2 ** (semitones / 12.0)
+    command = [
+        ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", os.path.abspath(path),
+        "-af", f"rubberband=pitch={factor:.6f}:formant=preserved",
+        "-c:a", "pcm_s16le",
+        "-ar", "44100", "-ac", "2",
+        os.path.abspath(output_path),
+    ]
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            command,
+            env=_runtime_env(),
+            **process_options(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=max(60, int(timeout_sec)),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SingingSeparationError("伴奏移调超时，请缩短音频后重试") from exc
+    except OSError as exc:
+        raise SingingSeparationError(f"无法启动 FFmpeg：{exc}") from exc
+
+    if result.returncode != 0 or not os.path.isfile(output_path) or os.path.getsize(output_path) <= 0:
+        detail = (result.stderr or result.stdout or "未提供错误详情").strip().splitlines()[-1]
+        raise SingingSeparationError(f"伴奏移调失败：{detail}")
+    return {
+        "path": output_path,
+        "shifted": True,
+        "semitones": semitones,
+        "elapsed_sec": round(time.monotonic() - started, 2),
+    }
+
+
 def mix_audio(
     vocals_path: str,
     accompaniment_path: str,
@@ -306,6 +374,7 @@ def mix_audio(
         result = subprocess.run(
             command,
             env=_runtime_env(),
+            **process_options(),
             capture_output=True,
             text=True,
             encoding="utf-8",

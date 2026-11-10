@@ -116,6 +116,26 @@ def resolve_cosyvoice3_python() -> str:
     return resolve_cosyvoice_python()
 
 
+def resolve_gptsovits_python() -> str:
+    """解析 GPT-SoVITS 运行环境的 python 可执行文件（venv_gptsovits / Python 3.11）。
+
+    探测顺序：
+    1. 环境变量 GPTSOVITS_VENV 指定的 python
+    2. tts_poc/venv_gptsovits/Scripts/python.exe （Windows venv）
+    3. tts_poc/venv_gptsovits/bin/python         （Linux/macOS venv）
+    4. 当前解释器 sys.executable（兜底；真实可用性由 gpu_setup 门禁决定）
+    """
+    env = os.environ.get("GPTSOVITS_VENV", "").strip()
+    if env and os.path.isfile(env):
+        return os.path.realpath(env)
+    venv_dir = os.path.join(_project_root(), "tts_poc", "venv_gptsovits")
+    for rel in ("Scripts/python.exe", "bin/python", "bin/python3"):
+        cand = os.path.join(venv_dir, *rel.split("/"))
+        if os.path.isfile(cand):
+            return os.path.realpath(cand)
+    return os.path.realpath(sys.executable) if os.path.isfile(sys.executable) else None
+
+
 # GPU 串行锁：常驻 Worker 同时只有一个占 GPU，跨引擎共享同一把锁。
 _gpu_lock = threading.Lock()
 
@@ -135,10 +155,15 @@ class MultiTtsCacheManager(TtsCacheManager):
     def compute_key(self, tts_text: str, ref_audio_path: str, speed: float) -> str:
         import hashlib
         base = super().compute_key(tts_text, ref_audio_path, speed)
-        extra = "|".join([
+        extra_parts = [
             f"engine={self._engine_tag}",
             f"reftext={self._ref_text}",
-        ]).encode("utf-8")
+        ]
+        # Unmasked padding in the previous GPT-SoVITS adapter produced audible
+        # but corrupted outputs that pass RMS checks. Invalidate that cache.
+        if self._engine_tag.startswith("gptsovits"):
+            extra_parts.append("adapter=native-v1")
+        extra = "|".join(extra_parts).encode("utf-8")
         return hashlib.sha256(base.encode("utf-8") + b"|" + extra).hexdigest()
 
 
@@ -163,6 +188,7 @@ class MultiTtsWorkerClient:
         self._model_dir = model_dir
         self._engine_tag = engine_tag
         self._needs_ref_text = needs_ref_text
+        self._language = ""
         self._data_root = data_root or os.path.join(_project_root(), "app_data")
         self._worker_log = worker_log
         self._process = None
@@ -228,6 +254,10 @@ class MultiTtsWorkerClient:
                 self._cache_manager = MultiTtsCacheManager(
                     cache_dir, self._model_dir, self._engine_tag, ref_text=self._ref_text,
                 )
+
+    def set_language(self, language: str) -> None:
+        """注入音色注册语言（GPT-SoVITS 需要 text_lang/prompt_lang 映射；其余引擎忽略）。"""
+        self._language = (language or "").strip().lower()
 
     # ---- 生命周期 ----
     def start(self) -> None:
@@ -397,6 +427,7 @@ class MultiTtsWorkerClient:
                 "segments": segment_payload,
                 "speed": float(speed),
                 "ref_text": ref_text,
+                "language": getattr(self, "_language", "") or "",
             }
             resp = self._send_command(CMD_SYNTHESIZE, params=params, timeout=3600)
 

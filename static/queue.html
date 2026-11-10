@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务队列 - 音视频工具</title>
+    <link rel="stylesheet" href="/ui.css">
+    <script src="/theme.js"></script>
+    <script src="/app_common.js"></script>
+    <script src="/workspace.js" defer></script>
+</head>
+<body>
+<main class="app queue-app">
+    <nav class="mainnav" aria-label="主导航">
+        <a class="nav-brand" href="/">音视频工具</a>
+        <div class="nav-links">
+            <a class="nav-link" href="/">图片视频生成</a>
+            <a class="nav-link" href="/tts">TTS 语音合成</a>
+            <a class="nav-link" href="/singing">AI 唱歌</a>
+            <a class="nav-link" href="/audio-converter">音频转换</a>
+            <a class="nav-link" href="/imagegen">AI 生图</a>
+        </div>
+    </nav>
+    <header class="hero"><div><h1>任务队列</h1><p>所有功能共用一个队列，按提交顺序执行。</p></div><span class="queue-policy">一次专注一个任务</span></header>
+    <div class="queue-stats" aria-label="任务统计">
+        <div><strong id="runningCount">0</strong><span>正在执行</span></div>
+        <div><strong id="waitingCount">0</strong><span>等待执行</span></div>
+        <div><strong id="finishedCount">0</strong><span>已结束</span></div>
+    </div>
+    <p id="queueConnection" class="hint" role="status">正在读取队列…</p>
+    <div class="queue-columns">
+        <section><h2>正在执行</h2><div id="queueRunning"></div><h2>等待执行</h2><div id="queueWaiting"></div></section>
+        <section><h2>最近记录</h2><div id="queueHistory"></div></section>
+    </div>
+    <p class="queue-footnote">切换页面或刷新不会中断队列。关闭本地服务后，未完成任务和本次运行记录不会保留。</p>
+</main>
+</body>
+</html>

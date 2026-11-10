@@ -15,6 +15,8 @@ import ctypes
 import json
 import importlib.util
 import zipfile
+from functools import wraps
+from task_queue import TaskQueue
 
 from flask import Flask, jsonify, request, send_from_directory, send_file, current_app
 from flask_cors import CORS
@@ -61,22 +63,31 @@ from singing_voice import (
     MAX_UPLOAD_BYTES,
     MIN_SEMITONE_SHIFT,
     SingingVCError,
+    probe_pitch_profile,
     run_conversion,
     status as singing_vc_status,
+    suggest_pitch_shift,
     validate_source as validate_singing_source,
 )
 from singing_separation import (
     mix_audio,
     separate_song,
+    shift_pitch,
     status as singing_separation_status,
 )
 from ncm_converter import (
     MAX_UPLOAD_BYTES as NCM_MAX_UPLOAD_BYTES,
     NCMError,
-    SUPPORTED_OUTPUT_FORMATS as NCM_OUTPUT_FORMATS,
     convert_ncm,
     inspect_ncm,
     status as ncm_converter_status,
+)
+from audio_converter import (
+    OUTPUT_FORMATS as AUDIO_OUTPUT_FORMATS,
+    AudioConversionError,
+    convert_audio,
+    inspect_audio,
+    status as audio_conversion_status,
 )
 
 # 开发模式下把 src/ 加入 import 搜索路径（打包后 PyInstaller 自动处理）
@@ -101,6 +112,78 @@ VOICE_REGISTRY = VoiceRegistry(DATA_ROOT)
 VOICE_VALIDATION = Validation()
 
 tasks = {}
+task_queue = TaskQueue(tasks)
+
+
+def enqueue_task(task_id, target, args=(), kwargs=None, *, kind, title, page,
+                 mode=None, cleanup=None):
+    # Resource switching happens at execution time, never on page navigation.
+    prepare = (lambda: mode_manager.ensure(mode, source="queue")) if mode else None
+    task_queue.submit(task_id, target, args, kwargs, kind=kind, title=title,
+                      page=page, prepare=prepare, cleanup=cleanup)
+
+
+def queued_request(kind, title, page, *, mode=None, sync_only=False):
+    """Queue legacy JSON responses, retaining synchronous API compatibility.
+
+    Spool uploads to disk before returning 202: Flask closes request uploads
+    at teardown, so a copied request context alone is insufficient.
+    """
+    def decorate(fn):
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            is_async = bool((request.get_json(silent=True) or {}).get("async"))
+            if sync_only and is_async:
+                return fn(*args, **kwargs)
+            temp_dir = tempfile.mkdtemp(prefix="queued_request_")
+            body_path = os.path.join(temp_dir, "request.body")
+            environ = request.environ.copy()
+            try:
+                with open(body_path, "wb") as handle:
+                    if request.is_json:
+                        handle.write(request.get_data(cache=True))
+                    else:
+                        shutil.copyfileobj(request.stream, handle, length=1024 * 1024)
+                if request.mimetype in {"multipart/form-data", "application/x-www-form-urlencoded"}:
+                    with open(body_path, "rb") as stream:
+                        with app.request_context({**environ, "wsgi.input": stream}):
+                            is_async = _parse_singing_bool(request.form.get("async"))
+            except Exception:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                raise
+            finished = threading.Event()
+            response_data = {}
+            task_id = str(uuid.uuid4())
+            tasks[task_id] = {"progress": 0, "logs": [], "result": None}
+
+            def execute():
+                with open(body_path, "rb") as stream:
+                    environ["wsgi.input"] = stream
+                    with app.request_context(environ):
+                        response = app.make_response(fn(*args, **kwargs))
+                        payload = response.get_json() or {}
+                        response_data.update(body=payload, status=response.status_code)
+                        task = tasks[task_id]
+                        task["result"] = payload
+                        if response.status_code >= 400:
+                            task.update(status="failed", stage="failed", message=(
+                                payload.get("error") or payload.get("reason") or "任务失败"))
+                        response.close()
+
+            def release():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                finished.set()
+
+            enqueue_task(task_id, execute, kind=kind, title=title, page=page,
+                         mode=mode, cleanup=release)
+            if is_async:
+                return jsonify({"task_id": task_id}), 202
+            finished.wait()
+            return jsonify(response_data.get("body") or {"error": tasks[task_id]["message"]}), response_data.get("status", 409)
+        return wrapped
+    return decorate
+
+
 gpu_setup.set_task_store(tasks)
 # GPU 语音加速：当前进行中的安装任务 id（与 tasks 字典联动，供状态端点读取进度）
 gpu_install_task_id = None
@@ -138,7 +221,9 @@ def mark_client_alive():
 
 
 def exit_if_client_stays_closed(close_generation):
-    time.sleep(3)
+    # 宽限期覆盖页面之间跳转的加载时间：新页面会立刻上报 client-alive 并继续
+    # 心跳（见 static/app_common.js），因此只有真正关掉窗口才会保持“静默”。
+    time.sleep(6)
     with client_state_lock:
         # A refresh reports alive immediately and again through the heartbeat.
         # Ignore a single late request that was already in flight while closing.
@@ -362,7 +447,7 @@ def strip_audio_extension(value):
     """Remove an audio extension when a user pastes one into a title field."""
     value = (value or "").strip()
     root, extension = os.path.splitext(value)
-    if extension.lower() in {".ncm", ".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}:
+    if extension.lower() in {".ncm", ".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".aiff", ".aif", ".ape", ".amr", ".caf"}:
         return root.strip()
     return value
 
@@ -658,7 +743,36 @@ def voice_clip_editor_script():
     return send_from_directory(STATIC_DIR, "voice_clip_editor.js")
 
 
+@app.route("/ui.css")
+def ui_stylesheet():
+    """全站统一的界面样式（设计令牌与公共组件）。"""
+    response = send_from_directory(STATIC_DIR, "ui.css")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
+@app.route("/theme.js")
+def theme_script():
+    """全站统一的界面设置脚本（明暗模式 + 主题色）。"""
+    response = send_from_directory(STATIC_DIR, "theme.js")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
+@app.route("/app_common.js")
+def app_common_script():
+    """全站公共脚本（客户端心跳 + 异步任务会话恢复）。"""
+    response = send_from_directory(STATIC_DIR, "app_common.js")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
 # ==================== MOSS-Image 生图（独立界面 + GPU 模式互斥） ====================
+@app.route("/workspace.js")
+def workspace_script():
+    return send_from_directory(STATIC_DIR, "workspace.js", max_age=0)
+
+
 @app.route("/imagegen")
 def imagegen_page():
     response = send_from_directory(STATIC_DIR, "imagegen.html")
@@ -685,6 +799,8 @@ def get_resource_mode():
 def set_resource_mode():
     data = request.get_json(silent=True) or {}
     mode = (data.get("mode") or "").strip()
+    if task_queue.busy and mode != mode_manager.mode:
+        return jsonify({"success": False, "error": "队列运行期间由任务自动切换资源模式"}), 409
     try:
         result = mode_manager.set_mode(mode, source="ui")
     except ValueError as exc:
@@ -816,11 +932,6 @@ def imagegen_generate():
         "guidance": max(1.0, min(8.0, guidance)),
         "seed": _imagegen_int(data, "seed", 42, 0, 2 ** 31 - 1),
     }
-    try:
-        mode_manager.ensure(MODE_IMAGEGEN, source="api")
-    except ModeBusyError as exc:
-        return jsonify({"error": str(exc), "data": mode_manager.status()}), 409
-
     output_dir = os.path.join(get_output_folder(), "imagegen")
     os.makedirs(output_dir, exist_ok=True)
     task_id = str(uuid.uuid4())
@@ -829,8 +940,8 @@ def imagegen_generate():
         "stage": "queued", "indeterminate": True, "result": None,
         "logs": [{"time": time.strftime("%H:%M:%S"), "message": "生图任务已进入队列", "stage": "queued"}],
     }
-    threading.Thread(target=_imagegen_worker, args=(task_id, params, output_dir),
-                     daemon=True).start()
+    enqueue_task(task_id, _imagegen_worker, (task_id, params, output_dir),
+                 kind="imagegen", title=prompt[:48], page="/imagegen", mode=MODE_IMAGEGEN)
     return jsonify({"task_id": task_id}), 202
 
 
@@ -905,6 +1016,7 @@ def client_close():
 
 
 @app.route("/api/upload", methods=["POST"])
+@queued_request("material_upload", "导入并拆分素材", "/materials")
 def upload_files():
     if "files" not in request.files:
         return jsonify({"error": "没有收到素材文件"}), 400
@@ -1087,6 +1199,8 @@ def estimate():
 @app.route("/api/output-folder", methods=["GET", "POST"])
 def output_folder():
     if request.method == "POST":
+        if task_queue.busy:
+            return jsonify({"error": "请在队列空闲后更改输出目录"}), 409
         try:
             data = request.get_json(silent=True) or {}
             path = (data.get("path") or "").strip()
@@ -1101,6 +1215,8 @@ def output_folder():
 
 @app.route("/api/select-output-folder", methods=["POST"])
 def select_output_folder():
+    if task_queue.busy:
+        return jsonify({"error": "请在队列空闲后更改输出目录"}), 409
     try:
         initial_dir = get_output_folder()
         selected = choose_output_folder(initial_dir)
@@ -1114,8 +1230,6 @@ def select_output_folder():
 
 @app.route("/api/generate", methods=["POST"])
 def generate_video_task():
-    if not _ensure_video_mode():
-        return jsonify({"error": "生图任务进行中，请等完成后再使用音视频功能"}), 409
     data = request.get_json(silent=True) or {}
     image_items = normalize_image_items(data)
     if not image_items:
@@ -1201,8 +1315,8 @@ def generate_video_task():
         "created_at": time.time(),
     }
 
-    thread = threading.Thread(
-        target=run_video_generation,
+    enqueue_task(
+        task_id, run_video_generation,
         args=(task_id, image_items, subtitle_mode, voice),
         kwargs={
             "manuscript_override": manuscript_override,
@@ -1211,10 +1325,9 @@ def generate_video_task():
             "voice_volume": voice_volume,
             "background_music_path": background_music_path,
             "background_music_volume": background_music_volume,
-        },
+        }, kind="video", title=data.get("output_name") or "讲解视频",
+        page="/generate", mode=MODE_VIDEO,
     )
-    thread.daemon = True
-    thread.start()
 
     return jsonify({"success": True, "task_id": task_id})
 
@@ -1295,6 +1408,7 @@ def _manuscript_generation_worker(task_id, image_items):
 
 
 @app.route("/api/generate-manuscript", methods=["POST"])
+@queued_request("manuscript", "生成逐页文稿", "/manuscript", sync_only=True)
 def generate_manuscript():
     """先上传图片并生成逐页 AI 文稿，返回可编辑的 manuscript 列表（不做视频）。"""
     data = request.get_json(silent=True) or {}
@@ -1322,10 +1436,10 @@ def generate_manuscript():
             "cancel_requested": False,
             "logs": [{"time": time.strftime("%H:%M:%S"), "message": "文稿任务已进入队列", "stage": "queued"}],
         }
-        threading.Thread(
-            target=_manuscript_generation_worker,
-            args=(task_id, image_items), daemon=True,
-        ).start()
+        enqueue_task(
+            task_id, _manuscript_generation_worker,
+            args=(task_id, image_items), kind="manuscript", title="生成逐页文稿", page="/manuscript",
+        )
         return jsonify({"success": True, "task_id": task_id}), 202
 
     try:
@@ -1362,14 +1476,24 @@ def get_status(task_id):
     return jsonify(public_task)
 
 
+@app.route("/queue")
+def queue_page():
+    return send_from_directory(STATIC_DIR, "queue.html", max_age=0)
+
+
+@app.route("/api/queue")
+def queue_status():
+    response = jsonify(task_queue.snapshot())
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/api/cancel/<task_id>", methods=["POST"])
 def cancel_task(task_id):
     if task_id not in tasks:
         return jsonify({"error": "任务不存在"}), 404
 
-    if tasks[task_id]["status"] in ("pending", "processing"):
-        tasks[task_id]["cancel_requested"] = True
-        tasks[task_id]["message"] = "正在取消任务..."
+    if task_queue.cancel(task_id):
         return jsonify({"success": True})
 
     return jsonify({"error": "任务无法取消"}), 400
@@ -1377,6 +1501,8 @@ def cancel_task(task_id):
 
 @app.route("/api/cleanup", methods=["POST"])
 def cleanup():
+    if task_queue.busy:
+        return jsonify({"error": "队列仍有任务，请完成或取消后再清理素材"}), 409
     try:
         if os.path.exists(UPLOAD_FOLDER):
             shutil.rmtree(UPLOAD_FOLDER)
@@ -1434,12 +1560,12 @@ def download_file(task_id=None, variant=None):
 
 
 # 支持 Range 的视频/文件流式响应（前端 <video> 拖动进度需要）
-def _ranged_file_response(path: str, as_attachment: bool = False, download_name: str = ""):
+def _ranged_file_response(path: str, as_attachment: bool = False, download_name: str = "", media_type=None):
     """以支持 HTTP Range 的方式流式返回文件（用于浏览器内预览视频/下载）。"""
     if not os.path.isfile(path):
         return jsonify({"error": "文件不存在"}), 404
     size = os.path.getsize(path)
-    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    mime = media_type or mimetypes.guess_type(path)[0] or "application/octet-stream"
     range_hdr = request.headers.get("Range", "")
     if not range_hdr:
         send_kwargs = {
@@ -1488,7 +1614,7 @@ def _ranged_file_response(path: str, as_attachment: bool = False, download_name:
     return resp
 
 
-# ===================== NCM 音频转换 =====================
+# ===================== 通用音频转换 =====================
 
 def _audio_converter_output_filename(title, source_name, output_format, used_names):
     """Choose a stable title-based name and avoid same-batch collisions."""
@@ -1506,24 +1632,21 @@ def _audio_converter_output_filename(title, source_name, output_format, used_nam
     return candidate
 
 
-def _save_ncm_converter_files():
-    """Save a bounded batch of NCM files into a task-owned temp directory."""
+def _save_audio_converter_files():
+    """Store uploads; recognize contents only when the queued job executes."""
     uploaded = request.files.getlist("files") or request.files.getlist("file")
     uploaded = [item for item in uploaded if item and item.filename]
     if not uploaded:
-        return None, None, "请选择至少一个 NCM 文件"
+        return None, None, "请选择至少一个音频文件"
     if len(uploaded) > AUDIO_CONVERTER_MAX_FILES:
-        return None, None, f"一次最多转换 {AUDIO_CONVERTER_MAX_FILES} 个 NCM 文件"
+        return None, None, f"一次最多转换 {AUDIO_CONVERTER_MAX_FILES} 个音频文件"
 
     total_size = 0
-    temp_dir = tempfile.mkdtemp(prefix="ncm_converter_", dir=UPLOAD_FOLDER)
+    temp_dir = tempfile.mkdtemp(prefix="audio_converter_", dir=UPLOAD_FOLDER)
     items = []
     try:
         for index, file in enumerate(uploaded):
             source_name = os.path.basename(file.filename or "")
-            extension = os.path.splitext(source_name)[1].lower()
-            if extension != ".ncm":
-                raise ValueError(f"{source_name} 不是 NCM 文件")
             file.seek(0, os.SEEK_END)
             size = file.tell()
             file.seek(0)
@@ -1538,7 +1661,7 @@ def _save_ncm_converter_files():
                 raise ValueError(
                     f"本次文件总大小不能超过 {AUDIO_CONVERTER_MAX_TOTAL_BYTES // (1024 * 1024)}MB"
                 )
-            source_path = os.path.join(temp_dir, f"source_{index:03d}.ncm")
+            source_path = os.path.join(temp_dir, f"source_{index:03d}.audio")
             file.save(source_path)
             items.append({
                 "source_path": source_path,
@@ -1567,7 +1690,7 @@ def _audio_converter_worker(task_id, temp_dir, source_items, output_format):
     try:
         task["status"] = "processing"
         update_task_progress(
-            task_id, 1, f"准备转换 {len(source_items)} 个 NCM 文件...",
+            task_id, 1, f"准备转换 {len(source_items)} 个音频文件...",
             stage="prepare", log=True, indeterminate=False,
         )
         for index, item in enumerate(source_items):
@@ -1590,7 +1713,7 @@ def _audio_converter_worker(task_id, temp_dir, source_items, output_format):
             }
             output_path = ""
             try:
-                info = inspect_ncm(item["source_path"])
+                info = inspect_audio(item["source_path"])
                 public_item["title"] = info.get("title", "")
                 public_item["artist"] = info.get("artist", "")
                 public_item["album"] = info.get("album", "")
@@ -1600,16 +1723,17 @@ def _audio_converter_worker(task_id, temp_dir, source_items, output_format):
                 output_path = os.path.join(output_dir, filename)
 
                 def on_progress(progress, message, _start=start_progress, _end=end_progress, _index=index):
+                    assert_not_cancelled(task_id)
                     inner = max(0.0, min(100.0, float(progress or 0.0)))
                     overall = _start + (_end - _start) * inner / 100.0
-                    stage = "decode" if inner < 76 else "transcode"
+                    stage = "inspect" if inner < 10 else ("decode" if inner < 76 else "transcode")
                     update_task_progress(
                         task_id, overall,
                         f"{_index + 1}/{total} · {message}",
                         stage=stage, log=False, indeterminate=stage == "transcode",
                     )
 
-                converted = convert_ncm(
+                converted = convert_audio(
                     item["source_path"],
                     output_path,
                     output_format=output_format,
@@ -1621,8 +1745,10 @@ def _audio_converter_worker(task_id, temp_dir, source_items, output_format):
                     "download_url": f"/api/audio-converter/file/{task_id}/{index}?download=1",
                     "audio_url": f"/api/audio-converter/file/{task_id}/{index}",
                     "source_format": converted.get("source_format", ""),
+                    "output_format": output_format,
+                    "duration_sec": converted.get("duration_sec", 0),
                 })
-            except (NCMError, OSError, ValueError) as exc:
+            except (AudioConversionError, NCMError, OSError, ValueError) as exc:
                 public_item["status"] = "failed"
                 public_item["error"] = str(exc) or "转换失败"
             public_items.append(public_item)
@@ -1646,12 +1772,12 @@ def _audio_converter_worker(task_id, temp_dir, source_items, output_format):
             )
             task["status"] = "failed"
             task["result"] = {"format": output_format, "items": public_items}
-            update_task_progress(task_id, 100, f"NCM 转换失败：{detail}", stage="failed", log=True)
+            update_task_progress(task_id, 100, f"音频转换失败：{detail}", stage="failed", log=True)
             return
 
         archive_path = ""
         if len(successful) > 1:
-            archive_name = f"NCM转换结果_{time.strftime('%Y%m%d_%H%M%S')}.zip"
+            archive_name = f"音频转换结果_{time.strftime('%Y%m%d_%H%M%S')}.zip"
             archive_path = os.path.join(output_dir, archive_name)
             with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 for item, file_path in zip(public_items, output_files):
@@ -1669,23 +1795,23 @@ def _audio_converter_worker(task_id, temp_dir, source_items, output_format):
         task["_output_files"] = output_files
         task["_archive_path"] = archive_path
         task["status"] = "completed"
-        summary = f"NCM 转换完成：{len(successful)}/{len(public_items)} 个文件"
+        summary = f"音频转换完成：{len(successful)}/{len(public_items)} 个文件"
         update_task_progress(task_id, 100, summary, stage="completed", log=True, indeterminate=False)
     except Exception as exc:
         if task.get("status") != "cancelled":
             task["status"] = "failed"
             update_task_progress(
-                task_id, task.get("progress", 0), f"NCM 转换失败：{exc}",
+                task_id, task.get("progress", 0), f"音频转换失败：{exc}",
                 stage="failed", log=True, indeterminate=False,
             )
-        print(f"NCM 转换任务失败：{exc}")
+        print(f"音频转换任务失败：{exc}")
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @app.route("/api/audio-converter/status", methods=["GET"])
 def audio_converter_status():
-    payload = dict(ncm_converter_status())
+    payload = audio_conversion_status()
     payload["max_files"] = AUDIO_CONVERTER_MAX_FILES
     payload["max_total_mb"] = AUDIO_CONVERTER_MAX_TOTAL_BYTES // (1024 * 1024)
     return jsonify(payload)
@@ -1693,24 +1819,26 @@ def audio_converter_status():
 
 @app.route("/api/audio-converter/convert", methods=["POST"])
 def audio_converter_convert():
-    readiness = ncm_converter_status()
+    readiness = audio_conversion_status()
     if not readiness.get("ready"):
-        return jsonify({"error": readiness.get("reason") or "NCM 转换器未就绪", "engine": readiness}), 503
+        return jsonify({"error": readiness.get("reason") or "音频转换器未就绪", "engine": readiness}), 503
     if not _parse_singing_bool(request.form.get("consent")):
         return jsonify({"error": "请确认仅转换你拥有使用权的本地文件"}), 400
     output_format = (request.form.get("format") or "wav").strip().lower().lstrip(".")
-    if output_format not in NCM_OUTPUT_FORMATS:
-        return jsonify({"error": "输出格式仅支持 WAV 或 MP3"}), 400
-    temp_dir, source_items, reason = _save_ncm_converter_files()
+    if output_format not in AUDIO_OUTPUT_FORMATS:
+        return jsonify({"error": "不支持的输出格式，请选择页面列出的音频格式"}), 400
+    if output_format not in readiness.get("output_formats", []):
+        return jsonify({"error": "本机暂不支持该输出格式，请选择其他格式"}), 503
+    temp_dir, source_items, reason = _save_audio_converter_files()
     if reason:
         return jsonify({"error": reason}), 400
 
     task_id = str(uuid.uuid4())
     tasks[task_id] = {
-        "type": "ncm_conversion",
+        "type": "audio_conversion",
         "status": "pending",
         "progress": 0,
-        "message": "NCM 转换任务排队中...",
+        "message": "音频转换任务排队中...",
         "stage": "queued",
         "indeterminate": False,
         "result": None,
@@ -1721,15 +1849,16 @@ def audio_converter_convert():
         "_archive_path": "",
         "logs": [{
             "time": time.strftime("%H:%M:%S"),
-            "message": "NCM 转换任务已进入队列",
+            "message": "音频转换任务已进入队列",
             "stage": "queued",
         }],
     }
-    threading.Thread(
-        target=_audio_converter_worker,
+    enqueue_task(
+        task_id, _audio_converter_worker,
         args=(task_id, temp_dir, source_items, output_format),
-        daemon=True,
-    ).start()
+        kind="audio_conversion", title=f"转换 {len(source_items)} 个音频 → {output_format.upper()}", page="/audio-converter",
+        cleanup=lambda: shutil.rmtree(temp_dir, ignore_errors=True),
+    )
     return jsonify({
         "task_id": task_id,
         "format": output_format,
@@ -1752,6 +1881,7 @@ def audio_converter_file(task_id, index):
         path,
         as_attachment=request.args.get("download") == "1",
         download_name=result_item.get("filename") or os.path.basename(path),
+        media_type=AUDIO_OUTPUT_FORMATS.get(result_item.get("output_format") or task.get("format"), {}).get("mime"),
     )
 
 
@@ -1868,6 +1998,8 @@ def stream_background_music(music_id):
 
 @app.route("/api/background-music/<music_id>", methods=["DELETE"])
 def delete_background_music(music_id):
+    if any(t.get("background_music_id") == music_id and t.get("status") in {"pending", "processing"} for t in list(tasks.values())):
+        return jsonify({"error": "队列中的视频正在使用这段音乐，请完成或取消任务后移除"}), 409
     path = _background_music_path(music_id)
     if not path:
         return jsonify({"error": "背景音乐不存在"}), 404
@@ -1889,18 +2021,30 @@ def list_voices():
     # 跨进程刷新：见 9873 微调服务新登记的音色
     VOICE_REGISTRY.reload()
     settings = gpu_setup.load_gpu_voice_settings(DATA_ROOT)
-    has_dependency, dep_msg = gpu_setup.check_dependency()
-    cosy3_ready = bool(settings.get("enabled", False) and has_dependency)
-    # 不可用的具体原因（供前端展示 availability_reason）
-    if not cosy3_ready:
-        if not settings.get("enabled", False):
-            cosy3_reason = "未启用 CosyVoice3 本地克隆（主页 GPU 加速开关未开启）"
-        elif not has_dependency:
-            cosy3_reason = f"CosyVoice3 依赖未就绪：{dep_msg or '权重/venv/Matcha-TTS 缺失'}"
-        else:
-            cosy3_reason = "CosyVoice3 运行环境不完整"
-    else:
-        cosy3_reason = ""
+    gpu_enabled = bool(settings.get("enabled", False))
+    from tts_engine_settings import get_clone_engine, CLONE_ENGINE_GPTSOVITS
+    active_engine = get_clone_engine(DATA_ROOT)
+    # 两个克隆引擎的就绪状态（供前端引擎切换 UI 与 availability 展示）
+    cosy_dep_ok, cosy_dep_msg = gpu_setup.check_dependency()
+    gsv_dep_ok, _gsv_dir = gpu_setup.check_dependency_gptsovits()
+    engines = {
+        "cosyvoice3": {
+            "ready": gpu_enabled and cosy_dep_ok,
+            "reason": "" if (gpu_enabled and cosy_dep_ok) else (
+                "未启用本地克隆（主页 GPU 加速开关未开启）" if not gpu_enabled
+                else f"CosyVoice3 依赖未就绪：{cosy_dep_msg or '权重/venv/Matcha-TTS 缺失'}"
+            ),
+        },
+        "gptsovits": {
+            "ready": gpu_enabled and gsv_dep_ok,
+            "reason": "" if (gpu_enabled and gsv_dep_ok) else (
+                "未启用本地克隆（主页 GPU 加速开关未开启）" if not gpu_enabled
+                else "GPT-SoVITS V5 依赖未就绪：仓库/权重/venv 缺失"
+            ),
+        },
+    }
+    clone_ready = bool(engines.get(active_engine, {}).get("ready"))
+    clone_reason = engines.get(active_engine, {}).get("reason", "")
     voices = [
         {
             "id": v.id,
@@ -1910,10 +2054,10 @@ def list_voices():
             "deletable": v.deletable,
             "available": (
                 v.type == "cloud_parallel"
-                or (v.type == "cosyvoice3" and cosy3_ready)
+                or (v.type == "cosyvoice3" and clone_ready)
             ),
             "availability_reason": (
-                "" if (v.type == "cloud_parallel" or cosy3_ready) else cosy3_reason
+                "" if (v.type == "cloud_parallel" or clone_ready) else clone_reason
             ),
             # Singing VC only needs the persisted reference clip; it does not
             # need the CosyVoice TTS worker to be enabled for this request.
@@ -1935,7 +2079,12 @@ def list_voices():
         }
         for v in VOICE_REGISTRY.list_voices()
     ]
-    return jsonify({"voices": voices})
+    return jsonify({
+        "voices": voices,
+        "clone_engine": active_engine,
+        "engines": engines,
+        "active_engine_ready": clone_ready,
+    })
 
 
 # ===================== 快速 / 批量 TTS 生成（生成输出区新增通道）=====================
@@ -1948,16 +2097,21 @@ def _tts_clamp_speed(value):
 
 
 def _tts_check_voice(voice):
-    """校验音色；Edge 云端不依赖 GPU，本地克隆才检查运行环境。"""
+    """校验音色；Edge 云端不依赖 GPU，本地克隆才检查运行环境（按激活引擎）。"""
     meta = VOICE_REGISTRY.get_voice(voice or "default")
     if meta is None:
         return False, "所选音色不存在，请重新选择"
     if meta.type == "cloud_parallel":
         return True, ""
     settings = gpu_setup.load_gpu_voice_settings(DATA_ROOT)
-    has_dependency, _ = gpu_setup.check_dependency()
-    if not settings.get("enabled", False) or not has_dependency:
+    if not settings.get("enabled", False):
         return False, "所选本地音色不可用，请先开启 GPU 语音加速并完成依赖安装"
+    from tts_engine_settings import get_clone_engine, CLONE_ENGINE_GPTSOVITS
+    active_engine = get_clone_engine(DATA_ROOT)
+    dep_ok, _ = gpu_setup.check_dependency_for(active_engine)
+    if not dep_ok:
+        label = "GPT-SoVITS V5" if active_engine == CLONE_ENGINE_GPTSOVITS else "CosyVoice3"
+        return False, f"当前克隆引擎 {label} 依赖未就绪，请检查权重 / venv，或在主页切换克隆引擎"
     return True, ""
 
 
@@ -2194,9 +2348,10 @@ def _batch_generate_worker(task_id, lines, voice, speed):
 
 
 @app.route("/api/tts/quick", methods=["POST"])
+@queued_request("tts", "单段配音", "/tts", mode=MODE_VIDEO, sync_only=True)
 def tts_quick():
     """快速生成单段：{text, voice, speed?, voice_volume?, with_video?, image?}。"""
-    if not _ensure_video_mode():
+    if not (request.get_json(silent=True) or {}).get("async") and not _ensure_video_mode():
         return jsonify({"error": "生图任务进行中，请等完成后再使用音视频功能"}), 409
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
@@ -2220,13 +2375,14 @@ def tts_quick():
             "status": "pending", "progress": 0, "message": "排队中...",
             "stage": "queued", "indeterminate": False, "result": None,
             "voice_volume": voice_volume,
+            "voice": voice,
             "logs": [{"time": time.strftime("%H:%M:%S"), "message": "单段配音任务已进入队列", "stage": "queued"}],
         }
-        threading.Thread(
-            target=_quick_generate_worker,
+        enqueue_task(
+            task_id, _quick_generate_worker,
             args=(task_id, text, voice, speed, voice_volume, with_video, image),
-            daemon=True,
-        ).start()
+            kind="tts", title=text[:48], page="/tts", mode=MODE_VIDEO,
+        )
         return jsonify({"task_id": task_id}), 202
 
     sys.path.insert(0, os.path.dirname(__file__))
@@ -2283,8 +2439,6 @@ def tts_quick():
 @app.route("/api/tts/batch", methods=["POST"])
 def tts_batch():
     """批量生成：{lines[], voice, speed?} -> {task_id}（后台线程，复用 /api/status/<task_id> 轮询）。"""
-    if not _ensure_video_mode():
-        return jsonify({"error": "生图任务进行中，请等完成后再使用音视频功能"}), 409
     data = request.get_json(silent=True) or {}
     lines = [str(x) for x in (data.get("lines") or []) if str(x).strip()]
     if not lines:
@@ -2301,15 +2455,16 @@ def tts_batch():
     tasks[task_id] = {
         "status": "pending", "progress": 0, "message": "排队中...",
         "outputs": [], "zip_url": None, "result": None,
+        "voice": voice,
         "stage": "queued",
         "indeterminate": False,
         "logs": [{"time": time.strftime("%H:%M:%S"), "message": "批量任务已进入队列", "stage": "queued"}],
     }
-    thread = threading.Thread(
-        target=_batch_generate_worker,
-        args=(task_id, lines, voice, speed), daemon=True,
+    enqueue_task(
+        task_id, _batch_generate_worker,
+        args=(task_id, lines, voice, speed), kind="tts_batch",
+        title=f"批量配音 · {len(lines)} 段", page="/tts", mode=MODE_VIDEO,
     )
-    thread.start()
     return jsonify({"task_id": task_id})
 
 
@@ -2424,6 +2579,7 @@ def _singing_generate_worker(
     semi_tone_shift,
     diffusion_steps,
     auto_f0_adjust,
+    auto_pitch=True,
 ):
     """Run one Singing VC job while keeping GPU work serialized."""
     generation_lock.acquire()
@@ -2484,6 +2640,7 @@ def _singing_generate_worker(
                 log=True, indeterminate=False,
             )
 
+        assert_not_cancelled(task_id)
         separation = None
         if source_mode == "original":
             update_task_progress(
@@ -2513,6 +2670,34 @@ def _singing_generate_worker(
                 stage="convert", log=True, indeterminate=True,
             )
 
+        # ===== 自动音域匹配：把人声与伴奏整体移调到目标音色的舒适音区 =====
+        effective_shift = semi_tone_shift
+        pitch_note = ""
+        if auto_pitch and semi_tone_shift == 0:
+            update_task_progress(
+                task_id, 50, "正在分析音域，自动匹配音高...",
+                stage="pitch", log=True, indeterminate=True,
+            )
+            profile = probe_pitch_profile(converted_source, target_path)
+            if profile.get("ok"):
+                suggested, reason = suggest_pitch_shift(profile)
+                effective_shift = suggested
+                pitch_note = (
+                    f"自动移调 {suggested:+d} 半音（{reason}）"
+                    if suggested else f"音高无需调整（{reason}）"
+                )
+                tasks[task_id]["auto_pitch_shift"] = suggested
+                update_task_progress(
+                    task_id, 52, pitch_note,
+                    stage="pitch", log=True, indeterminate=False,
+                )
+            else:
+                update_task_progress(
+                    task_id, 52, f"音域分析跳过：{profile.get('error') or '未知原因'}",
+                    stage="pitch", log=False, indeterminate=False,
+                )
+
+        assert_not_cancelled(task_id)
         def on_engine_log(_line):
             update_task_progress(
                 task_id, 82, "正在完成歌声音色转换...", stage="convert",
@@ -2523,27 +2708,41 @@ def _singing_generate_worker(
             converted_source,
             target_path,
             work_dir,
-            semi_tone_shift=semi_tone_shift,
+            semi_tone_shift=effective_shift,
             diffusion_steps=diffusion_steps,
-            auto_f0_adjust=auto_f0_adjust,
+            auto_f0_adjust=False if auto_pitch or source_mode == "original" else auto_f0_adjust,
             progress_callback=on_engine_log,
         )
 
+        assert_not_cancelled(task_id)
         final_audio = converted["path"]
         final_duration = converted.get("duration_sec", 0.0)
         if source_mode == "original":
+            accompaniment_path = separation["accompaniment_path"]
+            if effective_shift:
+                update_task_progress(
+                    task_id, 92, f"正在把伴奏同步移调 {effective_shift:+d} 半音...",
+                    stage="mix", log=True, indeterminate=True,
+                )
+                shifted = shift_pitch(
+                    accompaniment_path,
+                    effective_shift,
+                    os.path.join(work_dir, "accompaniment_shifted.wav"),
+                )
+                accompaniment_path = shifted["path"]
             update_task_progress(
-                task_id, 92, "正在把转换后的人声混回原伴奏...",
+                task_id, 93, "正在把转换后的人声混回原伴奏...",
                 stage="mix", log=True, indeterminate=True,
             )
             mixed = mix_audio(
                 converted["path"],
-                separation["accompaniment_path"],
+                accompaniment_path,
                 os.path.join(work_dir, "mixed.wav"),
             )
             final_audio = mixed["path"]
             final_duration = mixed.get("duration_sec", final_duration)
 
+        assert_not_cancelled(task_id)
         update_task_progress(
             task_id, 96, "正在整理 WAV 输出...", stage="finalize", log=True,
             indeterminate=True,
@@ -2564,6 +2763,9 @@ def _singing_generate_worker(
             "mode_label": "原曲模式" if source_mode == "original" else "已分离人声",
             "voice_id": voice_id,
             "semi_tone_shift": semi_tone_shift,
+            "pitch_shift_applied": effective_shift,
+            "pitch_note": pitch_note,
+            "auto_pitch": auto_pitch,
             "diffusion_steps": diffusion_steps,
         }
         task["result"] = result
@@ -2660,6 +2862,9 @@ def singing_convert():
         DEFAULT_DIFFUSION_STEPS, 4, 80,
     )
     auto_f0_adjust = _parse_singing_bool(request.form.get("auto_f0_adjust"))
+    # 自动音域匹配默认开启；前端显式传 auto_pitch=false 时才尊重手动音高值
+    auto_pitch_raw = request.form.get("auto_pitch")
+    auto_pitch = True if auto_pitch_raw is None else _parse_singing_bool(auto_pitch_raw)
     task_id = str(uuid.uuid4())
     tasks[task_id] = {
         "type": "singing_vc",
@@ -2678,20 +2883,26 @@ def singing_convert():
         "semi_tone_shift": semi_tone_shift,
         "diffusion_steps": diffusion_steps,
         "auto_f0_adjust": auto_f0_adjust,
+        "auto_pitch": auto_pitch,
         "logs": [{
             "time": time.strftime("%H:%M:%S"),
             "message": "AI 唱歌任务已进入队列",
             "stage": "queued",
         }],
     }
-    threading.Thread(
-        target=_singing_generate_worker,
+    # Keep the submitted reference stable if the voice is changed later.
+    queued_reference = os.path.join(temp_dir, "target_reference.wav")
+    shutil.copyfile(target_path, queued_reference)
+    enqueue_task(
+        task_id, _singing_generate_worker,
         args=(
-            task_id, temp_dir, source_path, target_path, voice_id, source_name,
+            task_id, temp_dir, source_path, queued_reference, voice_id, source_name,
             song_name, source_mode, semi_tone_shift, diffusion_steps, auto_f0_adjust,
+            auto_pitch,
         ),
-        daemon=True,
-    ).start()
+        kind="singing_vc", title=song_name, page="/singing", mode=MODE_VIDEO,
+        cleanup=lambda: shutil.rmtree(temp_dir, ignore_errors=True),
+    )
     return jsonify({
         "task_id": task_id,
         "voice_id": voice_id,
@@ -2800,6 +3011,7 @@ def _save_voice_request_file(prefix):
 
 
 @app.route("/api/voices/analyze", methods=["POST"])
+@queued_request("voice_analyze", "分析参考音频", "/tts#advanced/voice")
 def analyze_voice_reference():
     """Return the recommended 3~15 second voice region for the editor."""
     temp_dir, source_path, validation, error = _save_voice_request_file("voice_analyze_")
@@ -2848,6 +3060,7 @@ def preview_voice_reference():
 
 
 @app.route("/api/voices/transcribe", methods=["POST"])
+@queued_request("voice_transcribe", "识别参考音频逐字稿", "/tts#advanced/voice", mode=MODE_VIDEO)
 def transcribe_voice_reference():
     """Prepare the same reference clip used by cloning, then transcribe it locally."""
     language = normalize_voice_language(request.form.get("language"))
@@ -2888,6 +3101,7 @@ def transcribe_voice_reference():
 
 
 @app.route("/api/voices/create", methods=["POST"])
+@queued_request("voice_create", "创建克隆音色", "/tts#advanced/voice", mode=MODE_VIDEO)
 def create_voice():
     """上传、自动剪切并注册一个 CosyVoice3 零样本克隆音色。"""
     file = request.files.get("file")
@@ -3041,6 +3255,8 @@ def rename_voice(voice_id):
 
 @app.route("/api/voices/<voice_id>", methods=["DELETE"])
 def delete_voice(voice_id):
+    if any((t.get("voice_id") or t.get("voice")) == voice_id and t.get("status") in {"pending", "processing"} for t in list(tasks.values())):
+        return jsonify({"error": "队列中的任务正在使用该音色，请完成或取消任务后删除"}), 409
     if voice_id in ("default",):
         return jsonify({"error": "默认音色不可删除"}), 409
     if VOICE_REGISTRY.delete_clone(voice_id):
@@ -3136,12 +3352,77 @@ def tts_cache_clear():
         return jsonify({"success": False, "error": str(exc)}), 500
 
 
-# 程序退出时关闭 Worker 进程（CosyVoice3 Worker 为子进程，需显式回收以释放 GPU 显存）
+# ===================== 克隆引擎切换（GPT-SoVITS V5 / CosyVoice3）=====================
+def _clone_engines_status():
+    """两个克隆引擎的就绪状态（供切换 UI）。"""
+    settings = gpu_setup.load_gpu_voice_settings(DATA_ROOT)
+    gpu_enabled = bool(settings.get("enabled", False))
+    cosy_dep_ok, cosy_dep_msg = gpu_setup.check_dependency()
+    gsv_dep_ok, _ = gpu_setup.check_dependency_gptsovits()
+    return {
+        "cosyvoice3": {
+            "ready": gpu_enabled and cosy_dep_ok,
+            "reason": "" if (gpu_enabled and cosy_dep_ok) else (
+                "未启用本地克隆（主页 GPU 加速开关未开启）" if not gpu_enabled
+                else f"CosyVoice3 依赖未就绪：{cosy_dep_msg or '权重/venv/Matcha-TTS 缺失'}"
+            ),
+        },
+        "gptsovits": {
+            "ready": gpu_enabled and gsv_dep_ok,
+            "reason": "" if (gpu_enabled and gsv_dep_ok) else (
+                "未启用本地克隆（主页 GPU 加速开关未开启）" if not gpu_enabled
+                else "GPT-SoVITS V5 依赖未就绪：仓库/权重/venv 缺失"
+            ),
+        },
+    }
+
+
+@app.route("/api/tts/clone-engine", methods=["GET"])
+def tts_clone_engine_get():
+    """返回当前克隆引擎与各引擎就绪状态。"""
+    from tts_engine_settings import get_clone_engine
+    return jsonify({
+        "success": True,
+        "data": {
+            "clone_engine": get_clone_engine(DATA_ROOT),
+            "engines": _clone_engines_status(),
+        },
+    })
+
+
+@app.route("/api/tts/clone-engine", methods=["PUT"])
+def tts_clone_engine_set():
+    """切换克隆引擎；切换后回收旧引擎 Worker 以释放 GPU 显存（8GB 卡双 Worker 常驻会爆显存）。
+
+    缓存键含 engine_tag + 模型哈希，切换引擎不会串缓存。
+    """
+    from tts_engine_settings import get_clone_engine, set_clone_engine, CLONE_ENGINES
+    if task_queue.busy:
+        return jsonify({"success": False, "error": "请在队列空闲后切换克隆引擎"}), 409
+    data = request.get_json(silent=True) or {}
+    engine = (data.get("engine") or "").strip().lower()
+    if engine not in CLONE_ENGINES:
+        return jsonify({"success": False, "error": f"未知克隆引擎: {engine}（可选: {'/'.join(CLONE_ENGINES)}）"}), 400
+    previous = get_clone_engine(DATA_ROOT)
+    active = set_clone_engine(DATA_ROOT, engine)
+    if active != previous:
+        try:
+            from multi_tts_voice import MultiTtsWorkerClient
+            MultiTtsWorkerClient.shutdown_instance(previous)
+        except Exception as exc:
+            print(f"[WARN] 切换引擎时回收旧 Worker 失败: {exc}")
+    return jsonify({
+        "success": True,
+        "data": {"clone_engine": active, "previous": previous, "engines": _clone_engines_status()},
+    })
+
+
+# 程序退出时关闭 Worker 进程（克隆引擎 Worker 为子进程，需显式回收以释放 GPU 显存）
 import atexit
 
 
 def _shutdown_worker_on_exit():
-    """程序退出时关闭 CosyVoice3 Worker 子进程，释放 GPU 显存。
+    """程序退出时关闭克隆引擎 Worker 子进程（GPT-SoVITS / CosyVoice3），释放 GPU 显存。
 
     Worker 常驻并占用显存，正常退出（Ctrl+C / 进程结束）不会自动向 Worker 发
     shutdown，Windows 下子进程也不随父进程自动终止，会残留为孤儿进程持续占卡。

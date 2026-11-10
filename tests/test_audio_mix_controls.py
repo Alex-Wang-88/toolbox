@@ -107,23 +107,12 @@ class BackgroundMusicApiTests(unittest.TestCase):
     def test_generate_propagates_audio_mix_settings(self):
         import web_server
 
-        class FakeThread:
-            created = None
-
-            def __init__(self, *args, **kwargs):
-                self.args = args
-                self.kwargs = kwargs
-                FakeThread.created = self
-
-            def start(self):
-                return None
-
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as image:
             image.write(b"image")
             image_path = image.name
         task_id = None
         try:
-            with mock.patch.object(web_server.threading, "Thread", FakeThread), \
+            with mock.patch.object(web_server, "enqueue_task") as enqueue, \
                  mock.patch.object(
                      web_server, "_background_music_path",
                      return_value=r"C:\safe\bgm.mp3",
@@ -139,7 +128,7 @@ class BackgroundMusicApiTests(unittest.TestCase):
             body = response.get_json()
             self.assertEqual(response.status_code, 200, body)
             task_id = body["task_id"]
-            kwargs = FakeThread.created.kwargs["kwargs"]
+            kwargs = enqueue.call_args.kwargs["kwargs"]
             self.assertEqual(kwargs["voice_volume"], 1.8)
             self.assertEqual(kwargs["background_music_volume"], 0.25)
             self.assertEqual(kwargs["background_music_path"], r"C:\safe\bgm.mp3")
@@ -151,20 +140,9 @@ class BackgroundMusicApiTests(unittest.TestCase):
     def test_quick_tts_propagates_clamped_voice_volume(self):
         import web_server
 
-        class FakeThread:
-            created = None
-
-            def __init__(self, *args, **kwargs):
-                self.args = args
-                self.kwargs = kwargs
-                FakeThread.created = self
-
-            def start(self):
-                return None
-
         task_id = None
         try:
-            with mock.patch.object(web_server.threading, "Thread", FakeThread):
+            with mock.patch.object(web_server, "enqueue_task") as enqueue:
                 response = web_server.app.test_client().post("/api/tts/quick", json={
                     "text": "测试音量",
                     "voice": "default",
@@ -174,7 +152,7 @@ class BackgroundMusicApiTests(unittest.TestCase):
             body = response.get_json()
             self.assertEqual(response.status_code, 202, body)
             task_id = body["task_id"]
-            self.assertEqual(FakeThread.created.kwargs["args"][4], 2.0)
+            self.assertEqual(enqueue.call_args.kwargs["args"][4], 2.0)
             self.assertEqual(web_server.tasks[task_id]["voice_volume"], 2.0)
         finally:
             if task_id:
