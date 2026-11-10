@@ -210,7 +210,8 @@ def patch_transformers():
 
 def step_deps():
     log("[4/6] 安装 CosyVoice 推理依赖")
-    req = os.path.join(TTSPOC, "requirements-rocm.txt")
+    # 依赖清单放在 config/ 随仓库分发，保证换机器可复现
+    req = os.path.join(PROJECT_ROOT, "config", "requirements-cosyvoice-rocm.txt")
     if not os.path.isfile(req):
         raise SystemExit("[ERROR] 缺少 %s" % req)
     # openai-whisper 的 setup.py 需要 pkg_resources（setuptools>=81 已移除）

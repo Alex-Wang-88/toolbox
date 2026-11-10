@@ -1,0 +1,46 @@
+# GPT-SoVITS V5 推理依赖（AMD ROCm / Windows 适配版）
+# 基于上游 requirements.txt 裁剪：
+#   - torch/torchaudio 由 venv_cosyvoice 复用（2.9.1+rocm7.2.1，同为 cp312），
+#     此处不声明，避免把 CUDA 版装回来。
+#   - onnxruntime-gpu -> onnxruntime(CPU)：Windows ROCm 不提供 onnx EP。
+#   - 裁掉 tensorboard/gradio/fastapi/funasr/pyopenjtalk/python_mecab_ko。
+#   - matplotlib 必须 <3.9，否则会把 numpy 升到 2.x，违反 torchmetrics<=1.5 与
+#     GPT-SoVITS 自身的 numpy<2 约束（两者要和 numpy==1.26.4 一起装）。
+#   - resampy：V5 推理期重采样要用，上游 requirements 未列。
+#   - jieba_fast 需要 MSVC 编译，改为安装 jieba + 创建垫片包（见 setup 脚本）。
+
+numpy==1.26.4
+matplotlib==3.8.4
+scipy
+librosa==0.10.2
+numba
+pytorch-lightning>=2.4
+ffmpeg-python
+onnxruntime
+tqdm
+cn2an
+pypinyin
+g2p_en
+modelscope
+sentencepiece
+transformers>=4.51,<5
+peft<0.18.0
+chardet
+PyYAML
+psutil
+jieba
+split-lang
+fast_langdetect>=0.3.1
+wordsegment
+rotary_embedding_torch
+ToJyutping
+g2pk2
+ko_pron
+opencc
+pydantic<=2.10.6
+ctranslate2>=4.0,<5
+av>=11
+x_transformers
+torchmetrics<=1.5
+soundfile
+resampy

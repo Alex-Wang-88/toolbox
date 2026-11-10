@@ -165,9 +165,16 @@ def check_dependency_gptsovits():
     if not os.path.isfile(os.path.join(repo, "GPT_SoVITS", "TTS_infer_pack", "TTS.py")):
         return (False, None)
     pm = os.path.join(repo, "GPT_SoVITS", "pretrained_models")
+    # V5 有两个变体：v5turbo（worker 默认）/ v5dev。worker 的 --version 缺省取环境变量
+    # GPTSOVITS_VERSION，未设置时为 v5turbo，所以门禁必须按实际变体校验对应文件 ——
+    # 原实现写死 s2Gv5dev.pth，会让只装了 v5turbo 的环境被误判为未就绪。
+    version = (os.environ.get("GPTSOVITS_VERSION") or "v5turbo").strip().lower()
+    if version not in ("v5dev", "v5turbo"):
+        version = "v5turbo"
+    vits_name = "s2Gv5dev.pth" if version == "v5dev" else "s2Gv5turbo.pth"
     needed = [
         os.path.join("s1v3.ckpt"),
-        os.path.join("gsv-v5-pretrained", "s2Gv5dev.pth"),
+        os.path.join("gsv-v5-pretrained", vits_name),
         os.path.join("gsv-v5-pretrained", "vocoder.pth"),
         os.path.join("chinese-hubert-base", "pytorch_model.bin"),
         os.path.join("chinese-roberta-wwm-ext-large", "pytorch_model.bin"),
