@@ -191,3 +191,78 @@ export APP_VARIANT=cpu
 - 语音克隆（CosyVoice3）**硬性依赖 CUDA + Windows 开发环境**，Linux/macOS/无 N 卡机器上不可用，
   属设计预期，由门禁自动禁用，不影响主线。
 - `runtime/python/` 为 Windows PE 解释器，仅 Windows 可用；Linux/macOS 自愈逻辑回退系统 `python3`。
+
+## 9. 两机协作（桌面 16GB + 笔记本 8GB）
+
+开发机是台式（RX 9070 XT 16GB），另一台是笔记本（RTX 5060 8GB）。两台机器
+**共用同一个仓库、同一条 main 分支**，差异只落在「环境」上，因此不引入分支、
+也不新建仓库——分支不携带被 gitignore 的目录，建第二份仓库只会让 40+ 个共享文件
+长期分叉。
+
+### 9.1 什么进 git，什么不进
+
+进入版本控制（轻量、可复现）：
+
+```
+videogen_poc/README.md              环境说明
+videogen_poc/download_weights.py    权重下载（ModelScope，断点续传）
+videogen_poc/run_poc.py             POC 直跑脚本
+videogen_poc/workflows/*.json       已验证的 API 格式工作流
+```
+
+被 gitignore（重、机器相关，共约 50GB+）：
+
+```
+videogen_poc/ComfyUI/      源码（按 README 克隆或解压）
+videogen_poc/venv_comfy/   推理 venv（Python 3.12 + torch cu128/rocm）
+videogen_poc/models/       权重 ~47.4GB
+videogen_poc/output/       产物
+tts_poc/                   克隆引擎的 venv + 权重
+.venv/                     主流程 venv
+```
+
+原则：**代码走 git，环境走脚本 + 一次性拷贝**。不要把权重塞进仓库或 Release
+（GitHub 单文件上限 100MB，LFS 也有配额），也没必要——`download_weights.py`
+已经是可断点续传的幂等脚本。
+
+### 9.2 两台机器各自能跑什么
+
+| 功能 | 台式 16GB | 笔记本 8GB |
+|---|---|---|
+| 图片视频合成、Edge TTS、字幕对齐、音频转换 | 可以 | 可以 |
+| 生图（MOSS-Image，峰值约 4GB） | 可以 | 可以（慢） |
+| 本地语音克隆（GPT-SoVITS V5，约 4.5GB） | 可以 | 可以（慢） |
+| **MiniMax H3 视频生成** | **可以** | **不行** |
+
+H3 在台式上就要 ~16GB 显存（DiT int8 全载约 20GB，靠 ComfyUI 动态卸载）+ 35GB 内存，
+8GB 显存的笔记本没有余量。这是硬件约束，不是配置问题，改代码也变不出来。
+
+笔记本上访问 `/videogen` 会由门禁 `videogen_client.check_ready()` 给出明确原因并禁用按钮
+（缺 venv / 缺 ComfyUI / 缺 5 个权重文件），不会崩溃——这是设计行为，不是故障。
+
+### 9.3 笔记本想用 H3 的三条路
+
+1. **不装，桌面跑**（零成本）：日常在笔记本写代码 / 用其他功能，出片时切到台式。
+2. **远程调用桌面 ComfyUI**（推荐，尚未实现）：`videogen_client` 目前把
+   `base_url` 写死为 `127.0.0.1:<port>`；加一个 `VIDEOGEN_HOST` 环境变量指向台式
+   即可让笔记本做薄客户端，笔记本侧不装 47GB 权重。占用的是台式 GPU。
+3. **笔记本本地跑 GGUF 量化版**（未适配）：`download_weights.py` 注释里预留了
+   Q4/Q6 备选，是 8GB 本地出片的唯一现实路径，但需换加载节点、降分辨率
+   （576×320）、可能要 tiled VAE，属新的一轮适配，速度也会明显偏慢。
+
+### 9.4 日常 git 流
+
+```bash
+# 任一台，开工前
+git pull
+# 收工
+git add -A && git commit -m "..." && git push
+```
+
+因为重资产都被 gitignore，`git add -A` 在任一台机器上都不会误提交 50GB 环境；
+唯一要注意的是**首次在新机器上拉代码后，`videogen_poc/` 只有 4 个文件**，
+需要照 `videogen_poc/README.md` 把 ComfyUI / venv / 权重补齐（台式），
+或者按 9.3 的选项 1 直接跳过。
+
+> `variant.txt` / `APP_VARIANT=cpu` 是**打包时的构建变体**标记（见第 4 节），
+> 与「两台开发机」无关，不要用它来区分台式/笔记本。
