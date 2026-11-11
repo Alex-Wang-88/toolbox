@@ -299,8 +299,14 @@ def build_workflow(params):
             "length": int(params["length"]),
             "ref_image_size": params.get("ref_image_size", "match"),
         }
+        # Autogrow 输入在 API 格式里必须收成一个 dict 作为 ref_images 的值。
+        # 注意：写成顶层扁平键（"ref_image_1": [...]）能通过前置校验，
+        # 但执行时会报 `execute() got an unexpected keyword argument 'ref_image_1'`。
+        refs = {}
         for index, name in enumerate(params.get("ref_images") or [], start=1):
-            cond_inputs["ref_image_%d" % index] = _load_image(name)
+            refs["ref_image_%d" % index] = _load_image(name)
+        if refs:
+            cond_inputs["ref_images"] = refs
         wf["6"] = {"class_type": "MiniMaxH3ReferenceToVideo", "inputs": cond_inputs}
     else:
         cond_inputs = {

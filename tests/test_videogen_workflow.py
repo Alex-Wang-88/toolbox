@@ -201,8 +201,10 @@ def test_build_reference_uses_reference_node(monkeypatch, tmp_path):
     wf = build_workflow(params)
     assert wf["6"]["class_type"] == "MiniMaxH3ReferenceToVideo"
     assert wf["6"]["inputs"]["ref_image_size"] == "max"
-    assert wf["6"]["inputs"]["ref_image_1"] == ["20", 0]
-    assert wf["6"]["inputs"]["ref_image_2"] == ["21", 0]
+    # Autogrow 必须收成 dict；扁平键能过校验但执行时会 TypeError
+    assert wf["6"]["inputs"]["ref_images"] == {
+        "ref_image_1": ["20", 0], "ref_image_2": ["21", 0]}
+    assert "ref_image_1" not in wf["6"]["inputs"]
     assert wf["20"]["inputs"]["image"] == "r1.png"
 
 
