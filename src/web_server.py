@@ -33,8 +33,18 @@ from ffmpeg_util import resolve_ffmpeg, resolve_ffprobe
 from audio_transcriber import transcribe_audio
 import gpu_setup
 from gpu_arbiter import gpu_arbiter
-from resource_mode import MODE_VIDEO, MODE_IMAGEGEN, ModeBusyError, mode_manager
+from resource_mode import MODE_VIDEO, MODE_IMAGEGEN, MODE_VIDEOGEN, ModeBusyError, mode_manager
 from imagegen_client import imagegen_runner, check_ready as imagegen_check_ready
+from videogen_client import (
+    videogen_runner,
+    check_ready as videogen_check_ready,
+    clamp_params as videogen_clamp_params,
+    resolve_comfy_input_dir as videogen_input_dir,
+    safe_image_name as videogen_safe_image_name,
+    SAMPLER_OPTIONS as VIDEOGEN_SAMPLER_OPTIONS,
+    SCHEDULER_OPTIONS as VIDEOGEN_SCHEDULER_OPTIONS,
+    REF_IMAGE_LIMIT as VIDEOGEN_REF_IMAGE_LIMIT,
+)
 import mimetypes
 import math
 
@@ -97,6 +107,7 @@ if not getattr(sys, "frozen", False):
 
 ensure_runtime_dirs()
 mode_manager.register_imagegen_stopper(imagegen_runner.stop)
+mode_manager.register_videogen_stopper(videogen_runner.stop)
 
 SUBTITLE_MODES = {"on", "off"}
 BACKGROUND_MUSIC_DIR = os.path.join(DATA_ROOT, "background_music")
@@ -781,6 +792,14 @@ def imagegen_page():
     return response
 
 
+@app.route("/videogen")
+def videogen_page():
+    response = send_from_directory(STATIC_DIR, "videogen.html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 def _ensure_video_mode():
     """音视频/TTS 入口兜底：确保不在生图模式。忙时返回 False（调用方转 409）。"""
     try:
@@ -822,6 +841,39 @@ def imagegen_status():
             "mode": mode_manager.status(),
             "limits": {"width": [512, 768, 1024], "height": [512, 768, 1024],
                        "steps": [4, 50], "guidance": [1.0, 8.0], "prompt_max": 2000},
+        },
+    })
+
+
+@app.route("/api/videogen/status", methods=["GET"])
+def videogen_status():
+    ready, err = videogen_check_ready()
+    return jsonify({
+        "success": True,
+        "data": {
+            "ready": ready, "error": err or None,
+            "mode": mode_manager.status(),
+            "limits": {
+                "width": [256, 1344], "height": [256, 1344],
+                "length": [5, 362], "steps": [1, 30],
+                "lora_strength": [0.0, 1.0],
+                "shift_video": [0.01, 100.0], "shift_audio": [0.01, 100.0],
+                "denoise": [0.05, 1.0], "fps": [8.0, 30.0],
+                "prompt_max": 2000,
+                "modes": [
+                    {"value": "text", "label": "文生视频"},
+                    {"value": "first_frame", "label": "图生视频（首帧）"},
+                    {"value": "first_last", "label": "图生视频（首尾帧）"},
+                    {"value": "reference", "label": "参考图生视频"},
+                ],
+                "sampler_options": VIDEOGEN_SAMPLER_OPTIONS,
+                "scheduler_options": VIDEOGEN_SCHEDULER_OPTIONS,
+                "ref_image_limit": VIDEOGEN_REF_IMAGE_LIMIT,
+                "ref_image_sizes": [
+                    {"value": "match", "label": "贴合输出尺寸（快）"},
+                    {"value": "max", "label": "2048 短边（更像原图，慢数倍）"},
+                ],
+            },
         },
     })
 
@@ -990,6 +1042,210 @@ def imagegen_history():
             items.append({"filename": name, "size": stat.st_size,
                           "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
                           "_ts": stat.st_mtime})
+    items.sort(key=lambda x: x["_ts"], reverse=True)
+    for item in items:
+        item.pop("_ts", None)
+    return jsonify({"success": True, "data": items[:30]})
+
+
+# ===================== 视频生成（MiniMax H3 / ComfyUI）=====================
+def _videogen_worker(task_id, params, output_dir):
+    generation_lock.acquire()
+    gpu_acquired = False
+    try:
+        with mode_manager.task_scope(MODE_VIDEOGEN, source="videogen"):
+            gpu_acquired = gpu_arbiter.acquire(block=True, timeout=1800)
+            if not gpu_acquired:
+                raise RuntimeError("GPU 正忙（训练中），请稍后重试")
+
+            def progress(event, data):
+                task = tasks.get(task_id)
+                if task is None:
+                    return
+                if task.get("cancel_requested"):
+                    videogen_runner.stop()
+                    return
+                if event == "stage":
+                    stage = data.get("stage", "sampling")
+                    update_task_progress(task_id, 5 if stage == "loading" else 10,
+                                         data.get("message", "处理中..."),
+                                         stage=stage, log=True, indeterminate=True)
+                elif event == "progress":
+                    step = max(0, int(data.get("step", 0)))
+                    total = max(1, int(data.get("total", 1)))
+                    pct = 10 + int(85 * min(step, total) / total)
+                    update_task_progress(task_id, pct, f"采样中 {step}/{total}",
+                                         stage="sampling", indeterminate=False)
+                elif event == "error":
+                    update_task_progress(task_id, task.get("progress", 0),
+                                         data.get("message", "生成失败"),
+                                         stage="error", log=True)
+
+            update_task_progress(task_id, 2, "准备视频推理环境...", stage="loading",
+                                 log=True, indeterminate=True)
+            ok, payload, error = videogen_runner.run(params, output_dir, progress)
+
+            task = tasks.get(task_id)
+            if task is None:
+                return
+            if task.get("cancel_requested"):
+                task.update({"status": "cancelled", "message": "任务已取消", "stage": "cancelled"})
+                return
+            if not ok:
+                task.update({"status": "error", "message": error or "生成失败", "stage": "error"})
+                return
+            payload = payload or {}
+            task.update({
+                "status": "done", "progress": 100, "message": "生成完成",
+                "stage": "done", "indeterminate": False,
+                "_file_path": payload.get("path", ""),
+                "result": {
+                    "filename": payload.get("filename"), "elapsed": payload.get("elapsed"),
+                    "width": payload.get("width"), "height": payload.get("height"),
+                    "length": payload.get("length"), "steps": payload.get("steps"),
+                    "seed": payload.get("seed"),
+                },
+            })
+            update_task_progress(task_id, 100, "生成完成", stage="done", log=True)
+    except ModeBusyError as exc:
+        task = tasks.get(task_id)
+        if task is not None:
+            task.update({"status": "error", "message": str(exc), "stage": "error"})
+    except Exception as exc:
+        task = tasks.get(task_id)
+        if task is not None:
+            task.update({"status": "error", "message": f"生成失败：{exc}", "stage": "error"})
+        print(f"[ERROR] 视频生成任务失败: {exc}")
+    finally:
+        if gpu_acquired:
+            gpu_arbiter.release()
+        generation_lock.release()
+
+
+VIDEOGEN_IMAGE_MAX_MB = 20
+VIDEOGEN_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+
+
+@app.route("/api/videogen/upload", methods=["POST"])
+def videogen_upload():
+    """首帧 / 尾帧 / 参考图上传：直接存进 ComfyUI 的 input 目录。
+
+    ComfyUI 的 LoadImage 节点只能读 <comfy>/input 下的文件，所以不能只存在业务侧
+    目录。文件名随机化后返回，工作流按名字引用（clamp_params 会校验文件确实存在）。
+    """
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"error": "请选择图片"}), 400
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in VIDEOGEN_IMAGE_EXTS:
+        return jsonify({"error": "仅支持 png / jpg / jpeg / webp / bmp"}), 400
+    try:
+        file.stream.seek(0, os.SEEK_END)
+        size = file.stream.tell()
+        file.stream.seek(0)
+    except Exception:
+        size = 0
+    if size <= 0:
+        return jsonify({"error": "图片为空"}), 400
+    if size > VIDEOGEN_IMAGE_MAX_MB * 1024 * 1024:
+        return jsonify({"error": f"图片过大，上限 {VIDEOGEN_IMAGE_MAX_MB}MB"}), 413
+    target_dir = videogen_input_dir()
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+        name = "tb_%s%s" % (uuid.uuid4().hex[:12], ext)
+        file.save(os.path.join(target_dir, name))
+    except OSError as exc:
+        return jsonify({"error": f"保存失败: {exc}"}), 500
+    return jsonify({"filename": name, "size": size})
+
+
+@app.route("/api/videogen/input/<path:name>", methods=["GET"])
+def videogen_input_file(name):
+    """回显已上传的输入图（前端缩略图用）。"""
+    safe = videogen_safe_image_name(name)
+    root = os.path.realpath(videogen_input_dir())
+    path = os.path.realpath(os.path.join(root, safe)) if safe else ""
+    try:
+        allowed = bool(path) and os.path.commonpath([root, path]) == root
+    except ValueError:
+        allowed = False
+    if not allowed or not os.path.isfile(path):
+        return jsonify({"error": "图片不存在"}), 404
+    return send_file(path, max_age=3600)
+
+
+@app.route("/api/videogen/generate", methods=["POST"])
+def videogen_generate():
+    data = request.get_json(silent=True) or {}
+    ready, err = videogen_check_ready()
+    if not ready:
+        return jsonify({"error": err}), 503
+    params, err = videogen_clamp_params(data)
+    if err:
+        return jsonify({"error": err}), 400
+    if params["seed"] < 0:
+        params["seed"] = int(time.time() * 1000) % (2 ** 31)
+    output_dir = os.path.join(get_output_folder(), "videogen")
+    os.makedirs(output_dir, exist_ok=True)
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {
+        "status": "pending", "progress": 0, "message": "排队中...",
+        "stage": "queued", "indeterminate": True, "result": None,
+        "logs": [{"time": time.strftime("%H:%M:%S"), "message": "视频生成任务已进入队列", "stage": "queued"}],
+    }
+    enqueue_task(task_id, _videogen_worker, (task_id, params, output_dir),
+                 kind="videogen", title=params["prompt"][:48], page="/videogen",
+                 mode=MODE_VIDEOGEN)
+    return jsonify({"task_id": task_id}), 202
+
+
+@app.route("/api/videogen/file/<task_id>", methods=["GET"])
+def videogen_file(task_id):
+    task = tasks.get(task_id)
+    if task is None or task.get("status") != "done":
+        return jsonify({"error": "视频不存在"}), 404
+    path = task.get("_file_path") or ""
+    root = os.path.realpath(os.path.join(get_output_folder(), "videogen"))
+    real = os.path.realpath(path) if path else ""
+    try:
+        allowed = bool(real) and os.path.commonpath([root, real]) == root
+    except ValueError:
+        allowed = False
+    if not allowed or not os.path.isfile(real):
+        return jsonify({"error": "视频文件无效"}), 404
+    return send_file(real, mimetype="video/mp4", as_attachment=True,
+                     download_name=os.path.basename(real))
+
+
+@app.route("/api/videogen/preview/<path:filename>", methods=["GET"])
+def videogen_preview(filename):
+    name = os.path.basename(filename)
+    if name != filename or not name.lower().endswith(".mp4"):
+        return jsonify({"error": "文件名无效"}), 400
+    path = os.path.join(os.path.realpath(os.path.join(get_output_folder(), "videogen", "comfy")), name)
+    if not os.path.isfile(path):
+        return jsonify({"error": "视频不存在"}), 404
+    # 浏览器内播放需要 Range 支持（拖动进度条）
+    return _ranged_file_response(path)
+
+
+@app.route("/api/videogen/history", methods=["GET"])
+def videogen_history():
+    root = os.path.join(get_output_folder(), "videogen", "comfy")
+    items = []
+    if os.path.isdir(root):
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for name in filenames:
+                if not name.lower().endswith(".mp4"):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    stat = os.stat(path)
+                except OSError:
+                    continue
+                items.append({"filename": name, "size": stat.st_size,
+                              "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+                              "_ts": stat.st_mtime})
     items.sort(key=lambda x: x["_ts"], reverse=True)
     for item in items:
         item.pop("_ts", None)
@@ -3333,10 +3589,10 @@ def download_voice(voice_id):
 
 
 
-# TTS 缓存目录 + CosyVoice3 权重目录（供缓存统计/清理直接使用）
+# TTS 缓存目录 + 本地克隆引擎仓库目录（供缓存统计/清理直接使用）
 _TTS_CACHE_DIR = os.path.join(DATA_ROOT, "tts_cache")
-_COSYVOICE3_MODEL_DIR = os.path.normpath(
-    os.path.join(PROJECT_ROOT, "tts_poc", "models", "CosyVoice3-0.5B")
+_CLONE_MODEL_DIR = os.path.normpath(
+    os.path.join(PROJECT_ROOT, "tts_poc", "GPT-SoVITS")
 )
 
 
@@ -3345,7 +3601,7 @@ def tts_cache_stats():
     """获取 TTS 缓存统计信息。"""
     try:
         from tts_cache import TtsCacheManager
-        cache = TtsCacheManager(_TTS_CACHE_DIR, _COSYVOICE3_MODEL_DIR)
+        cache = TtsCacheManager(_TTS_CACHE_DIR, _CLONE_MODEL_DIR)
         stats = cache.get_stats()
         return jsonify({"success": True, "data": stats})
     except Exception as exc:
@@ -3357,7 +3613,7 @@ def tts_cache_clear():
     """清理 TTS 配音缓存。"""
     try:
         from tts_cache import TtsCacheManager
-        cache = TtsCacheManager(_TTS_CACHE_DIR, _COSYVOICE3_MODEL_DIR)
+        cache = TtsCacheManager(_TTS_CACHE_DIR, _CLONE_MODEL_DIR)
         count = cache.invalidate_all()
         return jsonify({"success": True, "data": {"cleared": count}})
     except Exception as exc:
@@ -3449,6 +3705,10 @@ def _shutdown_worker_on_exit():
         imagegen_runner.stop()
     except Exception as exc:
         print(f"[WARN] 退出时关闭生图进程失败: {exc}")
+    try:
+        videogen_runner.stop()
+    except Exception as exc:
+        print(f"[WARN] 退出时关闭视频推理进程失败: {exc}")
 
 
 atexit.register(_shutdown_worker_on_exit)

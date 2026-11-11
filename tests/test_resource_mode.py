@@ -15,6 +15,7 @@ import resource_mode
 from resource_mode import (
     MODE_IMAGEGEN,
     MODE_VIDEO,
+    MODE_VIDEOGEN,
     ModeBusyError,
     ModeManager,
 )
@@ -23,15 +24,19 @@ from resource_mode import (
 @pytest.fixture
 def manager(monkeypatch):
     """独立的 ModeManager + 被替换掉的 worker 启停副作用。"""
-    calls = {"tts_shutdown": 0, "imagegen_stop": 0}
+    calls = {"tts_shutdown": 0, "imagegen_stop": 0, "videogen_stop": 0}
     monkeypatch.setattr(
         resource_mode, "_shutdown_tts_workers",
         lambda: calls.__setitem__("tts_shutdown", calls["tts_shutdown"] + 1) or ["cosyvoice3"],
     )
     monkeypatch.setattr(resource_mode, "_imagegen_running", lambda: False)
+    monkeypatch.setattr(resource_mode, "_videogen_running", lambda: False)
     mgr = ModeManager()
     mgr.register_imagegen_stopper(
         lambda: calls.__setitem__("imagegen_stop", calls["imagegen_stop"] + 1)
+    )
+    mgr.register_videogen_stopper(
+        lambda: calls.__setitem__("videogen_stop", calls["videogen_stop"] + 1)
     )
     return mgr, calls
 
@@ -67,6 +72,34 @@ def test_switch_back_calls_imagegen_stopper(manager):
     assert result["changed"] is True
     assert calls["imagegen_stop"] == 1
     assert mgr.mode == MODE_VIDEO
+
+
+def test_switch_to_videogen_stops_tts_and_imagegen(manager):
+    mgr, calls = manager
+    result = mgr.set_mode(MODE_VIDEOGEN, source="ui")
+    assert result["ok"] and result["changed"] is True
+    assert result["stopped_tts"] == ["cosyvoice3"]
+    assert calls["tts_shutdown"] == 1
+    assert calls["imagegen_stop"] == 1
+    assert mgr.mode == MODE_VIDEOGEN
+
+
+def test_switch_away_from_videogen_calls_videogen_stopper(manager):
+    mgr, calls = manager
+    mgr.set_mode(MODE_VIDEOGEN)
+    assert calls["videogen_stop"] == 0, "切入 VIDEOGEN 不应停掉自己"
+    result = mgr.set_mode(MODE_VIDEO)
+    assert result["changed"] is True
+    assert calls["videogen_stop"] == 1
+    assert mgr.mode == MODE_VIDEO
+
+
+def test_videogen_is_idempotent(manager):
+    mgr, calls = manager
+    mgr.set_mode(MODE_VIDEOGEN)
+    again = mgr.set_mode(MODE_VIDEOGEN)
+    assert again["changed"] is False
+    assert calls["tts_shutdown"] == 1, "重复切换不应重复停 Worker"
 
 
 def test_invalid_mode_raises_value_error(manager):

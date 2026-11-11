@@ -2,7 +2,7 @@
 (function () {
     'use strict';
     const $ = (id) => document.getElementById(id);
-    const labels = { material_upload: '导入素材', voice_analyze: '分析参考音频', video: '讲解视频', manuscript: '文稿', tts: '语音合成', tts_batch: '批量配音', singing_vc: 'AI 唱歌', ncm_conversion: '音频转换', audio_conversion: '音频转换', voice_create: '创建音色', voice_transcribe: '识别逐字稿', imagegen: 'AI 生图' };
+    const labels = { material_upload: '导入素材', voice_analyze: '分析参考音频', video: '讲解视频', manuscript: '文稿', tts: '语音合成', tts_batch: '批量配音', singing_vc: 'AI 唱歌', ncm_conversion: '音频转换', audio_conversion: '音频转换', voice_create: '创建音色', voice_transcribe: '识别逐字稿', imagegen: 'AI 生图', videogen: '视频生成' };
     const states = { pending: '等待执行', processing: '正在执行', completed: '已完成', done: '已完成', failed: '失败', error: '失败', cancelled: '已取消' };
     const terminal = ['completed', 'done', 'failed', 'error', 'cancelled'];
     function node(tag, cls, text) {
@@ -40,7 +40,7 @@
                 if (!res.ok) throw new Error('读取队列失败');
                 const data = await res.json();
                 const active = data.tasks.find((t) => t.task_id === data.active_task_id);
-                const sessionKey = { '/tts': 'tts', '/singing': 'singing', '/audio-converter': 'audio-converter', '/imagegen': 'imagegen' }[location.pathname];
+                const sessionKey = { '/tts': 'tts', '/singing': 'singing', '/audio-converter': 'audio-converter', '/imagegen': 'imagegen', '/videogen': 'videogen' }[location.pathname];
                 nextTask.hidden = location.hash.startsWith('#advanced/') || !(sessionKey ? TaskResume.load(sessionKey) : location.pathname === '/generate' && data.tasks.some(t => t.type === 'video' && !terminal.includes(t.status)));
                 strip.classList.toggle('is-running', !!active);
                 strip.querySelector('.queue-strip-copy').textContent = active ? `${labels[active.type] || '任务'} · ${active.message || '执行中'}${data.waiting_count ? ` · ${data.waiting_count} 项等待` : ''}` : data.waiting_count ? `${data.waiting_count} 项等待执行` : '当前空闲，提交后立即开始';
@@ -107,6 +107,7 @@
         safeLink('下载视频', result.video_url);
         safeLink('下载结果', task.download_url || task.zip_url || result.zip_url || result.archive_url);
         if (task.type === 'imagegen') safeLink('查看图片', '/api/imagegen/file/' + encodeURIComponent(task.task_id));
+        if (task.type === 'videogen') safeLink('下载视频', '/api/videogen/file/' + encodeURIComponent(task.task_id));
         if (task.type === 'video') safeLink('下载视频', '/api/download/' + encodeURIComponent(task.task_id));
         (result.files || result.items || []).forEach((file) => safeLink(file.filename || '下载音频', file.download_url || file.audio_url));
         if (task.type === 'manuscript') {

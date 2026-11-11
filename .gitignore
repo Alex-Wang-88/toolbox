@@ -109,3 +109,10 @@ imagegen_poc/output/
 .playwright-cli/
 .workbuddy-ai/
 .zcode/
+
+# MiniMax H3 视频生成 POC（ComfyUI 环境 + 权重 + 产物）
+videogen_poc/ComfyUI/
+videogen_poc/venv_comfy/
+videogen_poc/models/
+videogen_poc/output/
+videogen_poc/custom_nodes/

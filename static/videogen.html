@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频生成 - 音视频工具</title>
+    <link rel="stylesheet" href="/ui.css">
+    <script src="/theme.js"></script>
+    <script src="/app_common.js"></script>
+    <script src="/workspace.js" defer></script>
+    <style>
+        /* ==================================================
+           本页专属布局：视频生成（MiniMax H3 / ComfyUI）
+           颜色、字号、按钮、输入框全部来自 ui.css
+           ================================================== */
+
+        .top { margin-bottom: var(--sp-7); }
+
+        /* ---------- 两栏工作区 ---------- */
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
+            gap: var(--sp-7);
+            align-items: start;
+        }
+
+        .field { margin-bottom: var(--sp-4); }
+        .field > label { display: block; margin-bottom: var(--sp-2); color: var(--text-2); font-size: var(--fs-12); font-weight: 600; }
+        .field > label .hint { margin-left: var(--sp-1); font-weight: 400; }
+
+        .presets { margin-bottom: var(--sp-2); }
+
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+        .grid2 .field { margin-bottom: 0; }
+
+        .field + .grid2 { margin-bottom: var(--sp-4); }
+
+        .seed-row { display: flex; gap: var(--sp-2); align-items: stretch; }
+        .seed-row input { flex: 1; min-width: 0; }
+        .seed-row .secondary { min-width: 64px; }
+
+        .range-row { display: flex; align-items: center; gap: var(--sp-3); }
+        .range-row input[type="range"] { flex: 1; }
+        .range-value { color: var(--text-2); font-size: var(--fs-12); font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; }
+
+        .actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
+        .actions .primary { flex: 1; }
+        .actions .secondary { min-width: 76px; }
+
+        .msg { margin-top: var(--sp-3); }
+
+        /* ---------- 结果区 ---------- */
+        .progress-wrap { margin-bottom: var(--sp-4); }
+
+        .progress-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: var(--sp-3);
+            margin-bottom: var(--sp-1);
+            color: var(--muted);
+            font-size: var(--fs-11);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .result-actions { margin-top: var(--sp-3); }
+
+        .result-actions a {
+            flex: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: var(--h-md);
+            min-width: 0;
+            padding: 10px var(--sp-5);
+            border: 1px solid var(--line);
+            border-radius: var(--r-sm);
+            background: var(--panel);
+            color: var(--text);
+            font-size: var(--fs-14);
+            line-height: 20px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+        }
+
+        .result-actions a:hover { border-color: var(--line-strong); background: var(--soft); text-decoration: none; }
+
+        .log { margin-top: var(--sp-3); max-height: 132px; }
+        .log > div { padding: 1px 0; }
+
+        .history { margin-top: var(--sp-5); }
+        .history > .panel-head { padding: 0 0 var(--sp-2); border: 0; }
+
+        .history-grid video {
+            width: 100%;
+            height: 118px;
+            object-fit: cover;
+            border-radius: var(--r-sm);
+            border: 1px solid var(--line);
+            background: var(--soft);
+            cursor: pointer;
+        }
+
+        .result-video { width: 100%; max-height: 460px; border-radius: var(--r-sm); background: var(--soft); }
+
+        /* 图片输入（首帧 / 尾帧 / 参考图） */
+        .upload-row { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+        .upload-row input[type="file"] { flex: 1; min-width: 0; font-size: 13px; }
+        .thumb-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); }
+        .thumb {
+            position: relative; width: 96px; height: 56px; border-radius: var(--r-sm);
+            overflow: hidden; border: 1px solid var(--line); background: var(--soft);
+        }
+        .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .thumb .del {
+            position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
+            border: 0; border-radius: 50%; background: rgba(0, 0, 0, .62); color: #fff;
+            font-size: 12px; line-height: 18px; cursor: pointer; padding: 0;
+        }
+        .thumb .tag {
+            position: absolute; left: 3px; bottom: 2px; font-size: 10px; color: #fff;
+            background: rgba(0, 0, 0, .55); padding: 0 4px; border-radius: 3px;
+        }
+
+        @media (max-width: 960px) {
+            .workspace { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 620px) {
+            .grid2 { grid-template-columns: 1fr; }
+            .stage { min-height: 220px; }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <nav class="mainnav" aria-label="主导航">
+            <a class="nav-brand" href="/">音视频工具</a>
+            <div class="nav-links">
+                <a class="nav-link" href="/">图片视频生成</a>
+                <a class="nav-link" href="/tts">TTS 语音合成</a>
+                <a class="nav-link" href="/singing">AI 唱歌</a>
+                <a class="nav-link" href="/audio-converter">音频转换</a>
+                <a class="nav-link" href="/imagegen">AI 生图</a>
+                <a class="nav-link active" href="/videogen" aria-current="page">视频生成</a>
+            </div>
+        </nav>
+
+        <header class="top">
+            <h1>视频生成
+                <small>输入描述，本地 ComfyUI + MiniMax H3 生成带音频的短视频</small>
+            </h1>
+        </header>
+
+        <div class="workspace">
+            <section class="panel">
+                <div class="panel-head">生成参数</div>
+                <div class="panel-body">
+                    <div class="field">
+                        <label for="mode">生成模式 <span class="hint">决定输入类型；不同模式的可用选项会自动切换</span></label>
+                        <select id="mode">
+                            <option value="text" selected>文生视频 —— 只用提示词</option>
+                            <option value="first_frame">图生视频 —— 首帧</option>
+                            <option value="first_last">图生视频 —— 首帧 + 尾帧</option>
+                            <option value="reference">参考图生视频 —— 最多 9 张</option>
+                        </select>
+                    </div>
+
+                    <div class="field" id="firstFrameBlock" hidden>
+                        <label for="firstFrameFile">首帧图片 <span class="hint">作为视频第一帧，比例建议与分辨率一致</span></label>
+                        <div class="upload-row">
+                            <input type="file" id="firstFrameFile" accept="image/png,image/jpeg,image/webp,image/bmp">
+                            <button class="secondary" type="button" id="firstFrameClear" hidden>清除</button>
+                        </div>
+                        <div class="thumb-row" id="firstFrameThumb"></div>
+                    </div>
+
+                    <div class="field" id="lastFrameBlock" hidden>
+                        <label for="lastFrameFile">尾帧图片 <span class="hint">作为视频最后一帧，模型会在两帧之间补运动</span></label>
+                        <div class="upload-row">
+                            <input type="file" id="lastFrameFile" accept="image/png,image/jpeg,image/webp,image/bmp">
+                            <button class="secondary" type="button" id="lastFrameClear" hidden>清除</button>
+                        </div>
+                        <div class="thumb-row" id="lastFrameThumb"></div>
+                    </div>
+
+                    <div class="field" id="refImageBlock" hidden>
+                        <label for="refImageFile">参考图 <span class="hint">提示词里用 &lt;Picture 1&gt;、&lt;Picture 2&gt; 指代，顺序即上传顺序</span></label>
+                        <div class="upload-row">
+                            <input type="file" id="refImageFile" accept="image/png,image/jpeg,image/webp,image/bmp" multiple>
+                            <button class="secondary" type="button" id="refImageClear" hidden>全部清除</button>
+                        </div>
+                        <div class="thumb-row" id="refImageThumbs"></div>
+                        <div class="hint" id="refImageCount"></div>
+                    </div>
+
+                    <div class="field">
+                        <label for="prompt">提示词 <span class="hint">描述画面主体、动作与氛围，中英文都支持</span></label>
+                        <div class="presets" id="presets"></div>
+                        <textarea id="prompt" maxlength="2000" placeholder="例如：一只橙白相间的猫坐在窗台上，窗外阳光明媚，树叶轻轻摇曳，猫好奇地眨眼并舔爪子，柔和的暖色调，景深虚化"></textarea>
+                        <div class="hint" style="text-align:right;margin-top:4px"><span id="charCount">0</span>/2000</div>
+                    </div>
+
+                    <div class="grid2">
+                        <div class="field">
+                            <label for="resolution">分辨率 <span class="hint">越大越清晰、越慢</span></label>
+                            <select id="resolution">
+                                <option value="576x320">576 × 320（快速预览）</option>
+                                <option value="768x416" selected>768 × 416（推荐）</option>
+                                <option value="960x544">960 × 544（高清）</option>
+                                <option value="1344x768">1344 × 768（原生最高，很慢）</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="duration">时长 <span class="hint">24fps</span></label>
+                            <select id="duration">
+                                <option value="73">约 3 秒（73 帧）</option>
+                                <option value="124" selected>约 5 秒（124 帧）</option>
+                                <option value="175">约 7 秒（175 帧）</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div data-advanced="sampling" data-advanced-title="采样设置" class="grid2">
+                        <div class="field">
+                            <label for="steps">采样步数 <span class="hint">Turbo LoRA 下 8 步即可</span></label>
+                            <select id="steps">
+                                <option value="4">4 步（草稿）</option>
+                                <option value="8" selected>8 步（推荐）</option>
+                                <option value="12">12 步</option>
+                                <option value="20">20 步（关闭 LoRA 时建议）</option>
+                                <option value="30">30 步（最佳质量）</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="seed">随机种子 <span class="hint">相同种子可复现同一视频</span></label>
+                            <div class="seed-row">
+                                <input id="seed" type="number" min="0" max="2147483647" placeholder="留空 = 随机">
+                                <button class="secondary" id="randomSeedBtn" type="button">随机</button>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="samplerName">采样器 <span class="hint">res_multistep 是官方推荐路径</span></label>
+                            <select id="samplerName"></select>
+                        </div>
+                        <div class="field">
+                            <label for="scheduler">调度器 <span class="hint">simple 为已验证默认</span></label>
+                            <select id="scheduler"></select>
+                        </div>
+                        <div class="field">
+                            <label for="denoise">去噪强度 <span class="hint">1.0 = 完整生成，调低会变“半成品”</span></label>
+                            <div class="range-row">
+                                <input id="denoise" type="range" min="0.05" max="1" step="0.05" value="1">
+                                <span class="range-value" id="denoiseValue">1.00</span>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="loraStrength">Turbo LoRA 强度 <span class="hint">0 = 关闭（需 20 步以上）</span></label>
+                            <div class="range-row">
+                                <input id="loraStrength" type="range" min="0" max="1" step="0.05" value="1">
+                                <span class="range-value" id="loraValue">1.00</span>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="shiftVideo">Sigma Shift（视频） <span class="hint">默认 12.0，一般不动</span></label>
+                            <input id="shiftVideo" type="number" min="0.01" max="100" step="0.5" value="12">
+                        </div>
+                        <div class="field">
+                            <label for="shiftAudio">Sigma Shift（音频） <span class="hint">默认 3.0，影响音频与画面的对齐</span></label>
+                            <input id="shiftAudio" type="number" min="0.01" max="100" step="0.5" value="3">
+                        </div>
+                    </div>
+
+                    <div data-advanced="output" data-advanced-title="图片与输出" class="grid2">
+                        <div class="field" id="refSizeField" hidden>
+                            <label for="refImageSize">参考图尺寸策略 <span class="hint">max 更像原图但慢数倍</span></label>
+                            <select id="refImageSize">
+                                <option value="match" selected>贴合输出尺寸（快）</option>
+                                <option value="max">2048 短边（更像原图，慢数倍）</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="fps">输出帧率 <span class="hint">模型按 24fps 训练，改动只影响播放速度</span></label>
+                            <select id="fps">
+                                <option value="24" selected>24 fps（原生）</option>
+                                <option value="12">12 fps（慢放）</option>
+                                <option value="16">16 fps</option>
+                                <option value="30">30 fps（快放）</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button class="primary" id="generateBtn" type="button">生成视频</button>
+                        <button class="secondary" id="cancelBtn" type="button" disabled>取消</button>
+                    </div>
+                    <div class="msg" id="msg"></div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-head">生成结果</div>
+                <div class="panel-body">
+                    <div class="progress-wrap">
+                        <div class="progress-meta"><span id="progressText">等待生成</span><span id="progressPct">0%</span></div>
+                        <div class="bar" id="bar"><i id="barFill"></i></div>
+                    </div>
+                    <div class="stage" id="stage">生成结果会显示在这里<br>首次生成需启动推理服务并加载模型，约 3–6 分钟</div>
+                    <div class="result-actions" id="resultActions" style="display:none">
+                        <a id="downloadLink" href="#" download>下载视频</a>
+                        <a id="openLink" href="#" target="_blank" rel="noopener">新窗口播放</a>
+                    </div>
+                    <div class="log" id="log"></div>
+                    <div class="history">
+                        <div class="panel-head" style="padding:0 0 8px;border:0">最近生成</div>
+                        <div class="history-grid" id="historyGrid"><span class="history-empty">暂无记录</span></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+    (function () {
+        'use strict';
+        const $ = function (id) { return document.getElementById(id); };
+        const PRESETS = [
+            { label: '窗台猫', text: '一只橙白相间的猫坐在窗台上，窗外阳光明媚，树叶轻轻摇曳，猫好奇地眨眼并舔爪子，柔和的暖色调，景深虚化' },
+            { label: '城市延时', text: 'City timelapse at dusk, neon signs lighting up, crowds crossing a busy intersection, light trails from traffic, cinematic camera slowly pushing forward' },
+            { label: '海浪', text: '黄昏的海岸线，海浪轻轻拍打礁石泛起白色泡沫，远处灯塔亮起，天空橙粉色渐变，电影感构图，缓慢横移镜头' },
+            { label: '咖啡特写', text: 'Close-up of hot coffee being poured into a glass cup, steam rising, beans falling in slow motion around it, warm backlight, shallow depth of field' }
+        ];
+        const TASK_KEY = 'videogen';
+        let taskId = null;
+        let activeWatch = null;
+
+        // 图片输入状态：文件名由后端存进 ComfyUI 的 input 目录后返回
+        const images = { first: '', last: '', refs: [] };
+        const REF_LIMIT = 9;
+
+        function modeOf() { return $('mode').value; }
+
+        function syncModeBlocks() {
+            const mode = modeOf();
+            $('firstFrameBlock').hidden = !(mode === 'first_frame' || mode === 'first_last');
+            $('lastFrameBlock').hidden = mode !== 'first_last';
+            $('refImageBlock').hidden = mode !== 'reference';
+            $('refSizeField').hidden = mode !== 'reference';
+            if (mode === 'text') {
+                // 文本模式不挂图，避免误带旧图提交
+                images.first = ''; images.last = ''; images.refs = [];
+                $('firstFrameFile').value = ''; $('lastFrameFile').value = ''; $('refImageFile').value = '';
+                renderThumbs();
+            }
+        }
+
+        function thumbNode(name, label, onRemove) {
+            const box = document.createElement('div');
+            box.className = 'thumb';
+            const img = document.createElement('img');
+            img.src = '/api/videogen/input/' + encodeURIComponent(name);
+            img.alt = label;
+            box.appendChild(img);
+            if (label) {
+                const tag = document.createElement('span');
+                tag.className = 'tag';
+                tag.textContent = label;
+                box.appendChild(tag);
+            }
+            const del = document.createElement('button');
+            del.type = 'button'; del.className = 'del'; del.textContent = '×';
+            del.title = '移除';
+            del.addEventListener('click', onRemove);
+            box.appendChild(del);
+            return box;
+        }
+
+        function renderThumbs() {
+            const first = $('firstFrameThumb');
+            first.innerHTML = '';
+            $('firstFrameClear').hidden = !images.first;
+            if (images.first) {
+                first.appendChild(thumbNode(images.first, '首帧', function () {
+                    images.first = ''; $('firstFrameFile').value = ''; renderThumbs();
+                }));
+            }
+            const last = $('lastFrameThumb');
+            last.innerHTML = '';
+            $('lastFrameClear').hidden = !images.last;
+            if (images.last) {
+                last.appendChild(thumbNode(images.last, '尾帧', function () {
+                    images.last = ''; $('lastFrameFile').value = ''; renderThumbs();
+                }));
+            }
+            const refs = $('refImageThumbs');
+            refs.innerHTML = '';
+            $('refImageClear').hidden = !images.refs.length;
+            images.refs.forEach(function (name, i) {
+                refs.appendChild(thumbNode(name, 'Picture ' + (i + 1), function () {
+                    images.refs.splice(i, 1); renderThumbs();
+                }));
+            });
+            $('refImageCount').textContent = images.refs.length
+                ? '已选 ' + images.refs.length + ' / ' + REF_LIMIT + ' 张（顺序即 <Picture n> 编号）'
+                : '';
+        }
+
+        async function uploadOne(file) {
+            const fd = new FormData();
+            fd.append('file', file);
+            const res = await fetch('/api/videogen/upload', { method: 'POST', body: fd });
+            const body = await res.json().catch(function () { return {}; });
+            if (!res.ok) { throw new Error(body.error || '上传失败'); }
+            return body.filename;
+        }
+
+        async function handleUpload(inputEl, onDone) {
+            const files = Array.prototype.slice.call(inputEl.files || []);
+            if (!files.length) { return; }
+            try {
+                showMsg('正在上传 ' + files.length + ' 张图片...', '');
+                for (const file of files) { await onDone(file); }
+                clearMsg();
+            } catch (e) {
+                showMsg(e.message, 'error');
+            } finally {
+                inputEl.value = '';
+            }
+        }
+
+        function showMsg(text, kind) {
+            const el = $('msg');
+            el.textContent = text || '';
+            el.className = 'msg show ' + (kind || '');
+        }
+        function clearMsg() { $('msg').className = 'msg'; }
+
+        function log(text) {
+            const el = $('log');
+            const line = document.createElement('div');
+            line.textContent = '[' + new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '] ' + text;
+            el.appendChild(line);
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function setProgress(pct, text, indeterminate) {
+            $('progressPct').textContent = indeterminate ? '...' : pct + '%';
+            $('progressText').textContent = text || '';
+            $('barFill').style.width = indeterminate ? '35%' : pct + '%';
+            $('bar').className = 'bar' + (indeterminate ? ' indeterminate' : '');
+        }
+
+        function setBusy(busy) {
+            $('generateBtn').disabled = busy;
+            $('cancelBtn').disabled = !busy;
+        }
+
+        function renderVideo(src) {
+            const stage = $('stage');
+            stage.innerHTML = '';
+            const video = document.createElement('video');
+            video.className = 'result-video';
+            video.src = src;
+            video.controls = true;
+            video.autoplay = false;
+            video.loop = true;
+            video.playsInline = true;
+            stage.appendChild(video);
+            $('resultActions').style.display = 'flex';
+            $('downloadLink').href = '/api/videogen/file/' + taskId;
+            $('openLink').href = src;
+        }
+
+        function applyTaskProgress(t) {
+            const pct = Number(t.progress || 0);
+            setProgress(pct, t.message || t.stage || '处理中', !!t.indeterminate);
+            if (t.logs && t.logs.length) {
+                const last = t.logs[t.logs.length - 1];
+                if (last && last.message && $('log').lastChild && $('log').lastChild.textContent.indexOf(last.message) === -1) {
+                    log(last.message);
+                }
+            }
+        }
+
+        function finishVideo(t) {
+            activeWatch = null;
+            setBusy(false);
+            showMsg('生成完成', 'ok');
+            renderVideo('/api/videogen/preview/' + encodeURIComponent((t.result || {}).filename || ''));
+            log('生成完成，耗时 ' + ((t.result || {}).elapsed || '?') + ' 秒');
+            loadHistory();
+            TaskResume.clear(TASK_KEY);
+        }
+
+        function failVideo(t) {
+            activeWatch = null;
+            setBusy(false);
+            showMsg(t.message || '任务已结束', 'error');
+            log(t.message || '任务已结束');
+            TaskResume.clear(TASK_KEY);
+        }
+
+        // 提交成功后与“切页返回后恢复”共用同一条轮询链路
+        function watchTask(id, startedAt) {
+            if (activeWatch) { activeWatch(); activeWatch = null; }
+            taskId = id;
+            setBusy(true);
+            activeWatch = TaskResume.watch({
+                taskId: id,
+                interval: 1200,
+                onTask: applyTaskProgress,
+                onDone: finishVideo,
+                onFail: failVideo,
+                onLost: function (reason) {
+                    activeWatch = null;
+                    setBusy(false);
+                    showMsg(reason || '任务已丢失', 'error');
+                    TaskResume.clear(TASK_KEY);
+                }
+            });
+        }
+
+        window.addEventListener('toolbox-new-task', () => {
+            if (activeWatch) { activeWatch(); activeWatch = null; }
+            TaskResume.clear(TASK_KEY); taskId = null; setBusy(false);
+            setProgress(0, '此前任务已保留在队列，可继续提交新任务', false);
+        });
+        function resumeTask() {
+            const session = TaskResume.load(TASK_KEY);
+            if (!session || !session.taskId) return;
+            if (session.prompt) {
+                $('prompt').value = session.prompt;
+                $('charCount').textContent = String(session.prompt.length);
+            }
+            $('stage').textContent = '正在恢复生成任务...';
+            watchTask(session.taskId, session.startedAt);
+        }
+
+        async function generate() {
+            const prompt = $('prompt').value.trim();
+            if (!prompt) { showMsg('请先输入提示词', 'error'); return; }
+            const mode = modeOf();
+            if ((mode === 'first_frame' || mode === 'first_last') && !images.first) {
+                showMsg('图生视频需要先上传首帧图片', 'error'); return;
+            }
+            if (mode === 'first_last' && !images.last) {
+                showMsg('首尾帧模式需要同时上传尾帧图片', 'error'); return;
+            }
+            if (mode === 'reference' && !images.refs.length) {
+                showMsg('参考图生视频至少需要上传 1 张参考图', 'error'); return;
+            }
+            clearMsg();
+            const res_ = ($('resolution').value || '576x320').split('x');
+            const payload = {
+                prompt: prompt,
+                mode: mode,
+                first_frame: images.first || '',
+                last_frame: images.last || '',
+                ref_images: images.refs.slice(),
+                ref_image_size: $('refImageSize').value,
+                width: Number(res_[0]), height: Number(res_[1]),
+                length: Number($('duration').value),
+                steps: Number($('steps').value),
+                lora_strength: Number($('loraStrength').value),
+                shift_video: Number($('shiftVideo').value),
+                shift_audio: Number($('shiftAudio').value),
+                sampler_name: $('samplerName').value,
+                scheduler: $('scheduler').value,
+                denoise: Number($('denoise').value),
+                fps: Number($('fps').value),
+                seed: $('seed').value === '' ? -1 : Number($('seed').value)
+            };
+            setBusy(true);
+            setProgress(0, '正在提交任务...', true);
+            $('stage').textContent = '正在生成，首次需启动推理服务并加载模型（约 3–6 分钟）...';
+            $('resultActions').style.display = 'none';
+            $('log').innerHTML = '';
+            try {
+                const res = await fetch('/api/videogen/generate', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const body = await res.json();
+                if (!res.ok) { throw new Error(body.error || '提交失败'); }
+                taskId = body.task_id;
+                log('任务已提交: ' + taskId);
+                const startedAt = Date.now();
+                TaskResume.save(TASK_KEY, { taskId: taskId, startedAt: startedAt, prompt: prompt });
+                watchTask(taskId, startedAt);
+            } catch (e) {
+                setBusy(false);
+                showMsg(e.message, 'error');
+                setProgress(0, '提交失败', false);
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                const res = await fetch('/api/videogen/history');
+                const body = await res.json();
+                const items = (body.data || []).slice(0, 12);
+                const grid = $('historyGrid');
+                grid.innerHTML = '';
+                if (!items.length) {
+                    grid.innerHTML = '<span class="history-empty">暂无记录</span>';
+                    return;
+                }
+                items.forEach(function (item) {
+                    const v = document.createElement('video');
+                    v.src = '/api/videogen/preview/' + encodeURIComponent(item.filename);
+                    v.muted = true;
+                    v.preload = 'metadata';
+                    v.title = item.mtime + ' · ' + Math.round(item.size / 1024) + ' KB';
+                    v.addEventListener('click', function () { renderVideo(v.src); });
+                    grid.appendChild(v);
+                });
+            } catch (e) { /* 历史是附加功能，失败不阻塞主流程 */ }
+        }
+
+        // ---- 初始化 ----
+        (function initPresets() {
+            const box = $('presets');
+            PRESETS.forEach(function (p) {
+                const btn = document.createElement('button');
+                btn.type = 'button'; btn.className = 'preset'; btn.textContent = p.label;
+                btn.addEventListener('click', function () {
+                    $('prompt').value = p.text;
+                    $('charCount').textContent = String(p.text.length);
+                });
+                box.appendChild(btn);
+            });
+        }());
+
+        $('prompt').addEventListener('input', function () {
+            $('charCount').textContent = String(this.value.length);
+        });
+        $('loraStrength').addEventListener('input', function () {
+            $('loraValue').textContent = Number(this.value).toFixed(2);
+        });
+        $('randomSeedBtn').addEventListener('click', function () {
+            $('seed').value = String(Math.floor(Math.random() * 2147483647));
+        });
+        $('denoise').addEventListener('input', function () {
+            $('denoiseValue').textContent = Number(this.value).toFixed(2);
+        });
+        $('mode').addEventListener('change', syncModeBlocks);
+        $('firstFrameFile').addEventListener('change', function () {
+            const el = this;
+            handleUpload(el, async function (file) {
+                images.first = await uploadOne(file);
+                renderThumbs();
+            });
+        });
+        $('lastFrameFile').addEventListener('change', function () {
+            const el = this;
+            handleUpload(el, async function (file) {
+                images.last = await uploadOne(file);
+                renderThumbs();
+            });
+        });
+        $('refImageFile').addEventListener('change', function () {
+            const el = this;
+            handleUpload(el, async function (file) {
+                if (images.refs.length >= REF_LIMIT) {
+                    throw new Error('最多 ' + REF_LIMIT + ' 张参考图');
+                }
+                images.refs.push(await uploadOne(file));
+                renderThumbs();
+            });
+        });
+        $('firstFrameClear').addEventListener('click', function () {
+            images.first = ''; $('firstFrameFile').value = ''; renderThumbs();
+        });
+        $('lastFrameClear').addEventListener('click', function () {
+            images.last = ''; $('lastFrameFile').value = ''; renderThumbs();
+        });
+        $('refImageClear').addEventListener('click', function () {
+            images.refs = []; $('refImageFile').value = ''; renderThumbs();
+        });
+        $('generateBtn').addEventListener('click', generate);
+        $('cancelBtn').addEventListener('click', async function () {
+            if (!taskId) { return; }
+            try { await fetch('/api/cancel/' + taskId, { method: 'POST' }); log('已请求取消'); } catch (e) {}
+        });
+
+        function fillSelect(id, values) {
+            const sel = $(id);
+            sel.innerHTML = '';
+            (values || []).forEach(function (v) {
+                const opt = document.createElement('option');
+                opt.value = v; opt.textContent = v;
+                sel.appendChild(opt);
+            });
+        }
+
+        (async function boot() {
+            // 就绪探针：环境缺失时提前给出可行动的提示；顺带用后端白名单填充下拉
+            try {
+                const res = await fetch('/api/videogen/status');
+                const body = await res.json();
+                const d = body.data || {};
+                if (!d.ready) {
+                    showMsg(d.error || '视频推理环境未就绪', 'error');
+                    $('generateBtn').disabled = true;
+                    setProgress(0, '环境未就绪', false);
+                }
+                const limits = d.limits || {};
+                fillSelect('samplerName', limits.sampler_options || ['res_multistep']);
+                fillSelect('scheduler', limits.scheduler_options || ['simple']);
+                if (limits.sampler_options && limits.sampler_options.length) {
+                    $('samplerName').value = 'res_multistep';
+                }
+                if (limits.scheduler_options && limits.scheduler_options.length) {
+                    $('scheduler').value = 'simple';
+                }
+            } catch (e) { /* 探针失败不阻塞 */ }
+            syncModeBlocks();
+            renderThumbs();
+            loadHistory();
+            resumeTask();
+        }());
+    }());
+    </script>
+</body>
+</html>

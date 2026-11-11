@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
-"""GPU 资源模式管理：生图与音视频/TTS 互斥，切换界面时智能启停 Worker。
+"""GPU 资源模式管理：生图/视频生成与音视频/TTS 互斥，切换时智能启停重负载进程。
 
-背景：本机 RTX 5060 Laptop 只有 8GB 显存。CosyVoice3 Worker 常驻约占 9GB 权重，
-MOSS-Image 推理峰值约 4GB 且要加载 26GB 权重到内存，两者不能同时驻留。
+背景：本机显卡显存有限（桌面 RX 9070 XT 16GB / 笔记本 RTX 5060 8GB）。
+CosyVoice3 Worker 常驻约占 9GB 权重，MOSS-Image 推理峰值约 4GB 且要加载 26GB
+权重到内存，MiniMax H3 视频推理（ComfyUI）要占 ~16GB 显存 + 35GB 内存权重，
+彼此不能同时驻留。
 
 设计：
-- MODE_VIDEO（默认）：index / tts / singing / audio-converter 四个页面。
+- MODE_VIDEO（默认）：index / tts / singing / audio-converter 页面。
 - MODE_IMAGEGEN：仅 /imagegen 页面。
-- 切到 IMAGEGEN 时主动 ``MultiTtsWorkerClient.shutdown_all()`` 腾显存；
-  切回 VIDEO 时生图的一次性子进程本应已退出，仅做兜底 terminate，
+- MODE_VIDEOGEN：仅 /videogen 页面（ComfyUI 服务懒加载、切走即杀）。
+- 切换目标模式时停齐不属于它的资源（TTS Worker / 生图进程 / ComfyUI）；
   TTS 依靠既有懒加载自动恢复，不预加载。
 - ``busy`` 计数防止「任务还在跑就被切页抽走模型」；忙时切换抛 ModeBusyError。
 
@@ -21,7 +23,8 @@ from contextlib import contextmanager
 
 MODE_VIDEO = "video"
 MODE_IMAGEGEN = "imagegen"
-VALID_MODES = frozenset({MODE_VIDEO, MODE_IMAGEGEN})
+MODE_VIDEOGEN = "videogen"
+VALID_MODES = frozenset({MODE_VIDEO, MODE_IMAGEGEN, MODE_VIDEOGEN})
 
 
 class ModeBusyError(RuntimeError):
@@ -60,6 +63,14 @@ def _imagegen_running():
         return False
 
 
+def _videogen_running():
+    try:
+        from videogen_client import videogen_runner
+        return bool(videogen_runner.is_running())
+    except Exception:
+        return False
+
+
 class ModeManager:
     """进程内单例；所有状态由一把可重入锁保护。"""
 
@@ -70,11 +81,28 @@ class ModeManager:
         self._last_switch = None
         self._last_source = ""
         self._imagegen_stopper = None
+        self._videogen_stopper = None
 
     def register_imagegen_stopper(self, fn):
         """注册生图子进程强制停止回调（由 imagegen_client 提供）。"""
         with self._lock:
             self._imagegen_stopper = fn
+
+    def register_videogen_stopper(self, fn):
+        """注册 ComfyUI 视频推理进程强制停止回调（由 videogen_client 提供）。"""
+        with self._lock:
+            self._videogen_stopper = fn
+
+    def _call_stopper(self, fn, label):
+        """调用兜底停止回调。实际停掉了东西返回名称标记，否则返回空串。"""
+        if fn is None:
+            return ""
+        try:
+            if fn():
+                return label
+        except Exception as exc:
+            print(f"[WARN] 兜底停止{label}失败: {exc}")
+        return ""
 
     @property
     def mode(self):
@@ -93,6 +121,7 @@ class ModeManager:
                 "busy": self._busy,
                 "tts_workers": _tts_worker_names(),
                 "imagegen_running": _imagegen_running(),
+                "videogen_running": _videogen_running(),
                 "last_switch": self._last_switch,
                 "last_source": self._last_source,
                 "last_switch_at": (
@@ -117,20 +146,28 @@ class ModeManager:
                 )
 
             stopped = []
+            # 切换目标模式时，停齐不属于目标模式的全部 GPU 资源（幂等，空列表无副作用）
             if mode == MODE_IMAGEGEN:
-                stopped = _shutdown_tts_workers()
+                vid_stopped = self._call_stopper(self._videogen_stopper, "视频推理服务")
+                stopped = [s for s in _shutdown_tts_workers() + [vid_stopped] if s]
                 message = (
-                    f"已释放 TTS 显存（停掉 {', '.join(stopped)}）" if stopped
-                    else "已切换到生图模式（当前无常驻 TTS Worker）"
+                    f"已释放 TTS/视频推理资源（停掉 {', '.join(stopped)}）" if stopped
+                    else "已切换到生图模式（当前无常驻占用）"
+                )
+            elif mode == MODE_VIDEOGEN:
+                img_stopped = self._call_stopper(self._imagegen_stopper, "生图进程")
+                stopped = [s for s in _shutdown_tts_workers() + [img_stopped] if s]
+                message = (
+                    f"已释放 TTS/生图资源（停掉 {', '.join(stopped)}）" if stopped
+                    else "已切换到视频生成模式（当前无常驻占用）"
                 )
             else:
-                stopper = self._imagegen_stopper
-                if stopper is not None:
-                    try:
-                        stopper()
-                    except Exception as exc:
-                        print(f"[WARN] 兜底停止生图进程失败: {exc}")
-                message = "已切回音视频模式，TTS 将按需自动启动"
+                img_stopped = self._call_stopper(self._imagegen_stopper, "生图进程")
+                vid_stopped = self._call_stopper(self._videogen_stopper, "视频推理服务")
+                gen_stopped = [s for s in [img_stopped, vid_stopped] if s]
+                message = "已切回音视频模式，TTS 将按需自动启动" + (
+                    f"（停掉 {', '.join(gen_stopped)}）" if gen_stopped else ""
+                )
 
             self._mode = mode
             self._last_switch = time.time()
