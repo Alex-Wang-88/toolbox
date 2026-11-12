@@ -232,37 +232,56 @@ tts_poc/                   克隆引擎的 venv + 权重
 | 图片视频合成、Edge TTS、字幕对齐、音频转换 | 可以 | 可以 |
 | 生图（MOSS-Image，峰值约 4GB） | 可以 | 可以（慢） |
 | 本地语音克隆（GPT-SoVITS V5，约 4.5GB） | 可以 | 可以（慢） |
-| **MiniMax H3 视频生成** | **可以** | **不行** |
+| **MiniMax H3 视频生成（full 档）** | **可以** | **不行** |
+| MiniMax H3 视频生成（lowvram8g 档） | 可以（无需切换） | **可以 · 已实测 PASS**（无声 / 480p / 5s，8.9 分钟/条） |
 
-H3 在台式上就要 ~16GB 显存（DiT int8 全载约 20GB，靠 ComfyUI 动态卸载）+ 35GB 内存，
-8GB 显存的笔记本没有余量。这是硬件约束，不是配置问题，改代码也变不出来。
+H3 官方 INT8 档在台式上就要 ~16GB 显存（DiT 全载约 20GB，靠 ComfyUI 动态卸载）+ 35GB
+内存，8GB 显存的笔记本塞不进这套权重。笔记本改走 **`VIDEOGEN_PROFILE=lowvram8g`**：
+W4A8 剪枝 DiT（11.68GB）+ Qwen3-VL-4B INT4（2.62GB）+ ClipProj 投影（0.47GB）
++ int8 视频 VAE（2.62GB），必需权重约 17.4GB；文本编码器显存 15.7GB → 约 4.5GB。
+档位定义在 `config/videogen_profiles.json`，`full` 档行为与引入档位前完全一致
+（7 组参数/工作流用例做过逐节点比对，零回归）。
 
-笔记本上访问 `/videogen` 会由门禁 `videogen_client.check_ready()` 给出明确原因并禁用按钮
-（缺 venv / 缺 ComfyUI / 缺 5 个权重文件），不会崩溃——这是设计行为，不是故障。
+代价要写清楚：**默认无音轨**（8GB 档摘掉音频 VAE / VAEDecodeAudio）、分辨率上限
+768×448、时长上限 124 帧（约 5 秒）、步数上限 8、长中文提示词理解略降。
+本机系统内存只有 31GB（实测空闲约 11GB），是比显存更紧的瓶颈，
+建议先把页面文件调到 32–48GB 并关掉浏览器等占内存程序。
 
-### 9.3 笔记本想用 H3 的三条路
+`videogen_client.check_ready()` 按当前档位校验权重清单；缺文件时给出明确原因并禁用
+按钮，不会崩溃。`/api/videogen/status` 下发的 `limits`（含 profile、resolutions、
+durations、step_options、audio）驱动 `/videogen` 页选项，页面不含任何机器硬编码。
 
-1. **不装，桌面跑**（零成本）：日常在笔记本写代码 / 用其他功能，出片时切到台式。
-2. **远程调用桌面 ComfyUI**（推荐，尚未实现）：`videogen_client` 目前把
+### 9.3 笔记本跑 H3 的四条路
+
+1. **本机 lowvram8g 档**（**2026-11-12 端到端实测 PASS**）：`.env` 设 `VIDEOGEN_PROFILE=lowvram8g`，
+   跑 `.venv\Scripts\python.exe videogen_poc\download_weights.py --profile lowvram8g --workers 32`
+   下 5 个必需权重（17.4GB 主权重 + 1.8GB Turbo LoRA，实测 34 分钟，支持断点续传），
+   再按 README 第七节建 venv + ComfyUI-ClipProj。
+   实测：RTX 5060 8GB 上 576×320 / 73 帧 / 8 步一条 **534 秒**，产物 207KB、无音轨；
+   S1 服务探活与 S2 出片均通过，S3 页面端到端未测。
+2. **不装，台式跑**（零成本）：把上面那项设回 `full`，出片时切到台式。
+3. **远程调用台式 ComfyUI**（推荐但尚未实现）：`videogen_client` 目前把
    `base_url` 写死为 `127.0.0.1:<port>`；加一个 `VIDEOGEN_HOST` 环境变量指向台式
-   即可让笔记本做薄客户端，笔记本侧不装 47GB 权重。占用的是台式 GPU。
-3. **笔记本本地跑 GGUF 量化版**（未适配）：`download_weights.py` 注释里预留了
-   Q4/Q6 备选，是 8GB 本地出片的唯一现实路径，但需换加载节点、降分辨率
-   （576×320）、可能要 tiled VAE，属新的一轮适配，速度也会明显偏慢。
+   即可让笔记本做薄客户端，笔记本侧不装任何权重。占用的是台式 GPU。
+4. **更激进的 GGUF Q2_K/Q3_K**（备选）：有实测报告指出 H3 的 GGUF 分块在
+   hidden size 2688 上会退化、每步需反量化，Q4_K_M 反而慢于 INT8 ConvRot；
+   不建议作为首选，只在 lowvram8g 档仍 OOM 时再试。
 
 ### 9.4 日常 git 流
 
 ```bash
 # 任一台，开工前
 git pull
-# 收工
-git add -A && git commit -m "..." && git push
+# 收工：显式暂存目标文件，推送前做一次密钥扫描
+git add <本次改动的文件>
+git commit -m "..."
+git push
 ```
 
-因为重资产都被 gitignore，`git add -A` 在任一台机器上都不会误提交 50GB 环境；
-唯一要注意的是**首次在新机器上拉代码后，`videogen_poc/` 只有 4 个文件**，
-需要照 `videogen_poc/README.md` 把 ComfyUI / venv / 权重补齐（台式），
-或者按 9.3 的选项 1 直接跳过。
+因为重资产都被 gitignore，任一台机器上都不会误提交 50GB 环境；
+唯一要注意的是**首次在新机器上拉代码后，`videogen_poc/` 只有几个轻量文件**，
+需要照 `videogen_poc/README.md` 补齐 ComfyUI / venv / 权重；
+`config/videogen_profiles.json` 是两端共享的档位定义，改它等于改两台机器的行为。
 
 > `variant.txt` / `APP_VARIANT=cpu` 是**打包时的构建变体**标记（见第 4 节），
 > 与「两台开发机」无关，不要用它来区分台式/笔记本。

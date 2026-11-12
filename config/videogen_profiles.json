@@ -1,0 +1,89 @@
+{
+  "full": {
+    "label": "完整 · 官方权重（16GB+ 显存 / 台式 ROCm）",
+    "audio": true,
+    "launch_flags": [],
+    "custom_nodes": [],
+    "weights": [
+      {"subdir": "diffusion_models", "name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "source": "ms", "repo": "Comfy-Org/MiniMax-H3"},
+      {"subdir": "text_encoders", "name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "source": "ms", "repo": "Comfy-Org/MiniMax-H3"},
+      {"subdir": "vae", "name": "minimax_h3_video_vae_fp16.safetensors", "source": "ms", "repo": "Comfy-Org/MiniMax-H3"},
+      {"subdir": "vae", "name": "minimax_h3_audio_vae_fp32.safetensors", "source": "ms", "repo": "Comfy-Org/MiniMax-H3"},
+      {"subdir": "loras", "name": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors", "source": "ms", "repo": "Comfy-Org/MiniMax-H3"}
+    ],
+    "limits": {
+      "width": [256, 1344], "height": [256, 1344],
+      "length": [5, 362], "steps": [1, 30],
+      "lora_strength": [0.0, 1.0],
+      "shift_video": [0.01, 100.0], "shift_audio": [0.01, 100.0],
+      "denoise": [0.05, 1.0], "fps": [8.0, 30.0],
+      "defaults": {"width": 576, "height": 320, "length": 124, "steps": 8},
+      "resolutions": [
+        {"value": "576x320", "label": "576 × 320（快速预览）"},
+        {"value": "768x416", "label": "768 × 416（推荐）"},
+        {"value": "960x544", "label": "960 × 544（高清）"},
+        {"value": "1344x768", "label": "1344 × 768（原生最高，很慢）"}
+      ],
+      "durations": [
+        {"value": "73", "label": "约 3 秒（73 帧）"},
+        {"value": "124", "label": "约 5 秒（124 帧）"},
+        {"value": "175", "label": "约 7 秒（175 帧）"}
+      ],
+      "step_options": [
+        {"value": "4", "label": "4 步（草稿）"},
+        {"value": "8", "label": "8 步（推荐）"},
+        {"value": "12", "label": "12 步"},
+        {"value": "20", "label": "20 步（关闭 LoRA 时建议）"},
+        {"value": "30", "label": "30 步（最佳质量）"}
+      ]
+    }
+  },
+  "lowvram8g": {
+    "label": "低显存 8GB · W4A8 + 4B/ClipProj（RTX 5060）",
+    "audio": false,
+    "launch_flags": ["--lowvram", "--fp16-vae", "--disable-pinned-memory"],
+    "custom_nodes": ["nicolab28/ComfyUI-ClipProj >= 0.1.13"],
+    "notes": "W4A8 需 ComfyUI mainline >= 2026-08-07（asym_w4a8_int8）；4B 编码器走原生 CLIPLoader + ClipProjApply 两节点链，单卡不要用 ClipProjLoader(all-in-one)，其 resident 模式会把编码器钉在显卡上。音频模块默认关闭以省显存。",
+    "weights": [
+      {"subdir": "diffusion_models", "name": "minimax_h3_fl2va_pruned-w4a8_convrot_pruned.safetensors", "source": "hf", "repo": "Winnougan/MiniMax-H3-INT4_Convrot_ComfyUI"},
+      {"subdir": "text_encoders", "name": "qwen3vl_4b_int4_convrot.safetensors", "source": "hf", "repo": "Merserk/qwen3vl-4b-int4-convrot"},
+      {"subdir": "clip_projections", "name": "mmh3-4b-ClipProj-v3.1-mlp.safetensors", "source": "hf", "repo": "NicoLab28/ClipProj-MiniMax-H3"},
+      {"subdir": "vae", "name": "minimax_h3_video_vae_int8_convrot.safetensors", "source": "ms", "repo": "Comfy-Org/MiniMax-H3"},
+      {"subdir": "loras", "name": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors", "source": "ms", "repo": "Comfy-Org/MiniMax-H3"},
+      {"subdir": "vae", "name": "minimax_h3_audio_vae_fp32.safetensors", "source": "ms", "repo": "Comfy-Org/MiniMax-H3", "optional": true}
+    ],
+    "nodes": {
+      "unet_name": "minimax_h3_fl2va_pruned-w4a8_convrot_pruned.safetensors",
+      "lora_name": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "clip_name": "qwen3vl_4b_int4_convrot.safetensors",
+      "clip_type": "krea2",
+      "clip_projection": "mmh3-4b-ClipProj-v3.1-mlp.safetensors",
+      "video_vae": "minimax_h3_video_vae_int8_convrot.safetensors",
+      "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
+      "projection_node": "ClipProjApply"
+    },
+    "limits": {
+      "width": [256, 768], "height": [256, 448],
+      "length": [5, 124], "steps": [1, 8],
+      "lora_strength": [0.0, 1.0],
+      "shift_video": [0.01, 100.0], "shift_audio": [0.01, 100.0],
+      "denoise": [0.05, 1.0], "fps": [8.0, 30.0],
+      "defaults": {"width": 576, "height": 320, "length": 73, "steps": 8},
+      "resolutions": [
+        {"value": "512x288", "label": "512 × 288（最省显存）"},
+        {"value": "576x320", "label": "576 × 320（推荐 / 480p 档）"},
+        {"value": "608x352", "label": "608 × 352（8G 实测档）"},
+        {"value": "736x416", "label": "736 × 416（0.3MP，可能 OOM）"}
+      ],
+      "durations": [
+        {"value": "73", "label": "约 3 秒（73 帧）"},
+        {"value": "124", "label": "约 5 秒（124 帧，上限）"}
+      ],
+      "step_options": [
+        {"value": "4", "label": "4 步（最快）"},
+        {"value": "6", "label": "6 步"},
+        {"value": "8", "label": "8 步（Turbo 推荐）"}
+      ]
+    }
+  }
+}

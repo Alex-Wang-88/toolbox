@@ -56,6 +56,132 @@ REF_IMAGE_LIMIT = 9
 REF_IMAGE_SIZES = ("match", "max")
 DEFAULT_FPS = 24.0
 
+# ---- 运行档位：代码走 git，机器差异走 profile（见 docs/PORTABILITY.md 第 9 节）----
+# VIDEOGEN_PROFILE=full       台式 16GB / ROCm，官方权重，行为与引入 profile 前完全一致
+# VIDEOGEN_PROFILE=lowvram8g  笔记本 8GB / CUDA，W4A8 + 4B/ClipProj，见 config/videogen_profiles.json
+PROFILE_ENV = "VIDEOGEN_PROFILE"
+DEFAULT_PROFILE = "full"
+_PROFILES_CACHE = None
+
+# 配置文件缺失时的兜底，与旧版 check_ready 的五个文件完全一致
+FULL_REQUIRED_WEIGHTS = [
+    ("diffusion_models", "minimax_h3_fl2va_pruned_int8_convrot.safetensors"),
+    ("text_encoders", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"),
+    ("vae", "minimax_h3_video_vae_fp16.safetensors"),
+    ("vae", "minimax_h3_audio_vae_fp32.safetensors"),
+    ("loras", "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"),
+]
+
+
+def load_profiles():
+    """读取 config/videogen_profiles.json；缺失/损坏时退化为 full 内建行为。"""
+    global _PROFILES_CACHE
+    if _PROFILES_CACHE is None:
+        path = os.path.join(PROJECT_ROOT, "config", "videogen_profiles.json")
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                _PROFILES_CACHE = json.load(handle)
+        except (OSError, ValueError):
+            _PROFILES_CACHE = {}
+    return _PROFILES_CACHE
+
+
+def active_profile_name():
+    """每次调用都读环境变量（.env 在本模块 import 之后才加载，不能缓存名字）。"""
+    name = (os.environ.get(PROFILE_ENV) or "").strip().lower()
+    return name if name in load_profiles() else DEFAULT_PROFILE
+
+
+def active_profile():
+    profiles = load_profiles()
+    name = active_profile_name()
+    return name, profiles.get(name) or {}
+
+
+def profile_limits():
+    """给 /api/videogen/status 下发的 limits；full 时字段与旧版一致。"""
+    _, cfg = active_profile()
+    lim = dict(cfg.get("limits") or {})
+    for key, fallback in (
+        ("width", [256, 1344]), ("height", [256, 1344]),
+        ("length", [5, 362]), ("steps", [1, 30]),
+        ("lora_strength", [0.0, 1.0]),
+        ("shift_video", [0.01, 100.0]), ("shift_audio", [0.01, 100.0]),
+        ("denoise", [0.05, 1.0]), ("fps", [8.0, 30.0]),
+    ):
+        lim.setdefault(key, fallback)
+    lim["prompt_max"] = 2000
+    lim["modes"] = [
+        {"value": "text", "label": "文生视频"},
+        {"value": "first_frame", "label": "图生视频（首帧）"},
+        {"value": "first_last", "label": "图生视频（首尾帧）"},
+        {"value": "reference", "label": "参考图生视频"},
+    ]
+    lim["sampler_options"] = SAMPLER_OPTIONS
+    lim["scheduler_options"] = SCHEDULER_OPTIONS
+    lim["ref_image_limit"] = REF_IMAGE_LIMIT
+    lim["ref_image_sizes"] = [
+        {"value": "match", "label": "贴合输出尺寸（快）"},
+        {"value": "max", "label": "2048 短边（更像原图，慢数倍）"},
+    ]
+    lim["profile"] = active_profile_name()
+    lim["profile_label"] = cfg.get("label") or active_profile_name()
+    lim["audio"] = bool(cfg.get("audio", True))
+    return lim
+
+
+def required_weight_files():
+    """返回 [(subdir, filename), ...]，供 check_ready / 下载器共用。"""
+    name, cfg = active_profile()
+    weights = cfg.get("weights") if name != "full" else None
+    if not weights:
+        return list(FULL_REQUIRED_WEIGHTS)
+    return [(w["subdir"], w["name"]) for w in weights if not w.get("optional")]
+
+
+def _apply_lowvram_profile(wf, cfg, params):
+    """在 full 工作流之上替换节点，实现低显存档位（full 原函数保持零改动）。
+
+    1) UNETLoader / LoraLoaderModelOnly / VAELoader 只换权重文件名；
+    2) 文本编码器走原生 CLIPLoader(4B) -> ClipProjApply 两节点链，单卡刻意不用
+       ClipProjLoader(all-in-one)：它的 resident 模式会把编码器钉在显卡上；
+    3) audio=false 时摘掉音频 VAE、VAEDecodeAudio 与 CreateVideo.audio。
+    """
+    nodes = cfg.get("nodes") or {}
+    if "1" in wf and nodes.get("unet_name"):
+        wf["1"]["inputs"]["unet_name"] = nodes["unet_name"]
+    if "2" in wf and nodes.get("lora_name"):
+        wf["2"]["inputs"]["lora_name"] = nodes["lora_name"]
+    if "4" in wf and nodes.get("video_vae"):
+        wf["4"]["inputs"]["vae_name"] = nodes["video_vae"]
+
+    projection = nodes.get("clip_projection")
+    if projection and nodes.get("clip_name"):
+        proj_id = "17"
+        # 先把下游对 ["3", 0] 的引用改到投影节点，再插入投影节点，避免自引用
+        for node in wf.values():
+            for key, value in node.get("inputs", {}).items():
+                if value == ["3", 0]:
+                    node["inputs"][key] = [proj_id, 0]
+        wf["3"]["inputs"] = {
+            "clip_name": nodes["clip_name"],
+            "type": nodes.get("clip_type", "auto"),
+            "device": "default",
+        }
+        wf[proj_id] = {
+            "class_type": nodes.get("projection_node", "ClipProjApply"),
+            "inputs": {"clip": ["3", 0], "projection": projection},
+        }
+
+    if not cfg.get("audio", True):
+        wf.pop("5", None)    # 音频 VAE
+        wf.pop("13", None)   # VAEDecodeAudio
+        if "14" in wf:
+            wf["14"]["inputs"].pop("audio", None)
+        if "6" in wf:
+            wf["6"]["inputs"].pop("audio_vae", None)
+    return wf
+
 
 def resolve_comfy_input_dir():
     """ComfyUI 的 LoadImage 只读 <comfy>/input 目录，上传的图片必须放这里。"""
@@ -121,7 +247,7 @@ def resolve_port():
 
 
 def check_ready():
-    """返回 (ok, error)：venv、ComfyUI 源码、权重是否就位。"""
+    """返回 (ok, error)：venv、ComfyUI 源码、当前 profile 的权重是否就位。"""
     py = resolve_videogen_python()
     if not py or not os.path.isfile(py):
         return False, "未找到视频推理环境（videogen_poc/venv_comfy），请按 videogen_poc/README.md 第五节重建"
@@ -129,17 +255,16 @@ def check_ready():
     if not os.path.isfile(os.path.join(comfy_dir, "main.py")):
         return False, f"未找到 ComfyUI 源码: {comfy_dir}"
     models_dir = os.path.join(comfy_dir, "models")
-    required = [
-        os.path.join(models_dir, "diffusion_models", "minimax_h3_fl2va_pruned_int8_convrot.safetensors"),
-        os.path.join(models_dir, "text_encoders", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"),
-        os.path.join(models_dir, "vae", "minimax_h3_video_vae_fp16.safetensors"),
-        os.path.join(models_dir, "vae", "minimax_h3_audio_vae_fp32.safetensors"),
-        os.path.join(models_dir, "loras", "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"),
-    ]
+    profile = active_profile_name()
+    required = [os.path.join(models_dir, sub, name)
+                for sub, name in required_weight_files()]
     missing = [p for p in required if not os.path.isfile(p)]
     if missing:
-        return False, "H3 权重缺失 %d/%d 个，请运行 videogen_poc/download_weights.py" % (
-            len(missing), len(required))
+        return False, (
+            "H3 [%s] 权重缺失 %d/%d 个（缺 %s），请运行 "
+            "videogen_poc/download_weights.py --profile %s"
+            % (profile, len(missing), len(required), os.path.basename(missing[0]), profile)
+        )
     return True, ""
 
 
@@ -176,8 +301,16 @@ def clamp_params(data):
         value = str(data.get(name, default) or "").strip()
         return value if value in options else default
 
-    width = _int("width", 576, 256, 1344)
-    height = _int("height", 320, 256, 1344)
+    # 档位限制：full 的 limits/defaults 与旧版硬编码完全一致，保证台式零回归
+    _, cfg = active_profile()
+    lim = cfg.get("limits") or {}
+    defaults = lim.get("defaults") or {}
+    w_lo, w_hi = lim.get("width", [256, 1344])
+    h_lo, h_hi = lim.get("height", [256, 1344])
+    len_lo, len_hi = lim.get("length", [5, 362])
+    steps_lo, steps_hi = lim.get("steps", [1, 30])
+    width = _int("width", defaults.get("width", 576), w_lo, w_hi)
+    height = _int("height", defaults.get("height", 320), h_lo, h_hi)
     # 分辨率必须落在 32 的倍数上（模型网格要求）
     width = max(256, (width // 32) * 32)
     height = max(256, (height // 32) * 32)
@@ -212,8 +345,8 @@ def clamp_params(data):
         "mode": mode,
         "width": width,
         "height": height,
-        "length": snap_frames(_int("length", 124, 5, 362)),
-        "steps": _int("steps", 8, 1, 30),
+        "length": snap_frames(_int("length", defaults.get("length", 124), len_lo, len_hi)),
+        "steps": _int("steps", defaults.get("steps", 8), steps_lo, steps_hi),
         "seed": _int("seed", -1, -1, 2 ** 31 - 1),
         "lora_strength": _float("lora_strength", 1.0, 0.0, 1.0),
         "shift_video": _float("shift_video", SIGMA_SHIFT_DEFAULTS["shift_video"], 0.01, 100.0),
@@ -231,6 +364,14 @@ def clamp_params(data):
 
 
 def build_workflow(params):
+    """按当前 profile 构造 H3 工作流（API 格式）。full 走原实现，零回归。"""
+    name, cfg = active_profile()
+    if name == DEFAULT_PROFILE or not cfg:
+        return _build_workflow_full(params)
+    return _apply_lowvram_profile(_build_workflow_full(params), cfg, params)
+
+
+def _build_workflow_full(params):
     """构造 H3 工作流（API 格式）。
 
     条件节点按模式切换：
@@ -402,9 +543,11 @@ class ComfyUIRunner:
                 self._kill_locked()
 
         self._log_path = log_path
+        _, profile_cfg = active_profile()
+        launch_flags = list(profile_cfg.get("launch_flags") or [])
         proc = subprocess.Popen(
             [py, "main.py", "--port", str(port),
-             "--output-directory", out_root, "--disable-auto-launch"],
+             "--output-directory", out_root, "--disable-auto-launch"] + launch_flags,
             cwd=comfy_dir,
             stdout=open(log_path, "a", encoding="utf-8", errors="replace"),
             stderr=subprocess.STDOUT,

@@ -39,11 +39,9 @@ from videogen_client import (
     videogen_runner,
     check_ready as videogen_check_ready,
     clamp_params as videogen_clamp_params,
+    profile_limits as videogen_profile_limits,
     resolve_comfy_input_dir as videogen_input_dir,
     safe_image_name as videogen_safe_image_name,
-    SAMPLER_OPTIONS as VIDEOGEN_SAMPLER_OPTIONS,
-    SCHEDULER_OPTIONS as VIDEOGEN_SCHEDULER_OPTIONS,
-    REF_IMAGE_LIMIT as VIDEOGEN_REF_IMAGE_LIMIT,
 )
 import mimetypes
 import math
@@ -853,27 +851,9 @@ def videogen_status():
         "data": {
             "ready": ready, "error": err or None,
             "mode": mode_manager.status(),
-            "limits": {
-                "width": [256, 1344], "height": [256, 1344],
-                "length": [5, 362], "steps": [1, 30],
-                "lora_strength": [0.0, 1.0],
-                "shift_video": [0.01, 100.0], "shift_audio": [0.01, 100.0],
-                "denoise": [0.05, 1.0], "fps": [8.0, 30.0],
-                "prompt_max": 2000,
-                "modes": [
-                    {"value": "text", "label": "文生视频"},
-                    {"value": "first_frame", "label": "图生视频（首帧）"},
-                    {"value": "first_last", "label": "图生视频（首尾帧）"},
-                    {"value": "reference", "label": "参考图生视频"},
-                ],
-                "sampler_options": VIDEOGEN_SAMPLER_OPTIONS,
-                "scheduler_options": VIDEOGEN_SCHEDULER_OPTIONS,
-                "ref_image_limit": VIDEOGEN_REF_IMAGE_LIMIT,
-                "ref_image_sizes": [
-                    {"value": "match", "label": "贴合输出尺寸（快）"},
-                    {"value": "max", "label": "2048 短边（更像原图，慢数倍）"},
-                ],
-            },
+            # limits 由当前 profile 下发：8GB 档自动收窄分辨率/帧数/步数，
+            # 16GB full 档字段与旧版完全一致，前端无需按机器硬编码。
+            "limits": videogen_profile_limits(),
         },
     })
 

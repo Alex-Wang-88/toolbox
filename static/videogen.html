@@ -154,8 +154,9 @@
 
         <div class="workspace">
             <section class="panel">
-                <div class="panel-head">生成参数</div>
+                <div class="panel-head">生成参数 <span class="hint" id="profileBadge"></span></div>
                 <div class="panel-body">
+                    <div class="hint" id="audioHint" hidden>当前档位已关闭音频解码以节省显存，输出为无声 MP4。</div>
                     <div class="field">
                         <label for="mode">生成模式 <span class="hint">决定输入类型；不同模式的可用选项会自动切换</span></label>
                         <select id="mode">
@@ -693,6 +694,33 @@
             });
         }
 
+        // 档位由后端 /api/videogen/status 下发：8GB 档自动换成更小的分辨率/帧数/步数，
+        // 页面不再按机器硬编码，台式与笔记本共用同一份 HTML。
+        function fillLimitOptions(id, options, selectedValue) {
+            const sel = $(id);
+            if (!sel || !Array.isArray(options) || !options.length) return;
+            sel.replaceChildren();
+            options.forEach((item) => {
+                const opt = document.createElement('option');
+                opt.value = String(item.value);
+                opt.textContent = item.label || String(item.value);
+                sel.appendChild(opt);
+            });
+            if (selectedValue != null) sel.value = String(selectedValue);
+        }
+
+        function applyLimits(limits) {
+            const defaults = limits.defaults || {};
+            fillLimitOptions('resolution', limits.resolutions,
+                defaults.width && defaults.height ? defaults.width + 'x' + defaults.height : null);
+            fillLimitOptions('duration', limits.durations, defaults.length);
+            fillLimitOptions('steps', limits.step_options, defaults.steps);
+            const badge = $('profileBadge');
+            if (badge) badge.textContent = limits.profile_label || limits.profile || '';
+            const audioHint = $('audioHint');
+            if (audioHint) audioHint.hidden = limits.audio !== false;
+        }
+
         (async function boot() {
             // 就绪探针：环境缺失时提前给出可行动的提示；顺带用后端白名单填充下拉
             try {
@@ -705,6 +733,7 @@
                     setProgress(0, '环境未就绪', false);
                 }
                 const limits = d.limits || {};
+                applyLimits(limits);
                 fillSelect('samplerName', limits.sampler_options || ['res_multistep']);
                 fillSelect('scheduler', limits.scheduler_options || ['simple']);
                 if (limits.sampler_options && limits.sampler_options.length) {
