@@ -39,8 +39,10 @@ moviepy==1.0.3
 multidict==6.7.1
 numpy==2.5.1
 onnxruntime==1.27.0
+opencv-python-headless==5.0.0.93
 packaging==26.2
 pillow==12.3.0
+pooch==1.9.0
 proglog==0.1.12
 propcache==0.5.2
 protobuf==7.35.1
@@ -49,7 +51,9 @@ pysrt==1.1.2
 python-docx==1.2.0
 pywin32==312; platform_system == "Windows"
 PyYAML==6.0.3
+rembg==2.0.87
 requests==2.34.2
+scipy==1.18.1
 setuptools==83.0.0
 tabulate==0.10.0
 tokenizers==0.23.1

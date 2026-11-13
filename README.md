@@ -16,6 +16,8 @@
 - **桌面启动器**：PyInstaller 打包为 Windows exe（含自带 FFmpeg 与 Python 运行时）
 - **AI 唱歌**：支持上传完整原曲自动分离人声并保留伴奏，也支持直接上传已分离导唱，使用已登记的本地克隆音色进行 Singing Voice Conversion；下载结果按“歌曲名称 - 音色名称.wav”命名（可选 Seed-VC + Demucs，见 [`docs/singing_voice.md`](docs/singing_voice.md)）
 - **通用音频转换**：自动识别输入音频，可混合批量转换为 WAV、MP3、FLAC、M4A、AAC、OGG 或 Opus，兼容 NCM 本地解码；AI 唱歌原曲模式也可直接接收 NCM（见 [`docs/audio_converter.md`](docs/audio_converter.md)）
+- **视频链式续写**：把「上一段末帧 → 下一段首帧」做成通用模块，长镜头分段生成后无损拼接，自带接缝质检与断点续跑（见 [`docs/video_chainer.md`](docs/video_chainer.md)）
+- **通用抠图**：BiRefNet（MIT，默认）为主，可切 ISNet / u2net；边缘精修去背景污染，输出白底/透明图或统一画布（见 [`docs/image_cutout.md`](docs/image_cutout.md)）
 
 ## 系统架构
 
@@ -91,6 +93,7 @@ TOOLBOX/
 - **TTS**：edge-tts、GPT-SoVITS V5（默认）、CosyVoice3（可切换，本地 GPU）
 - **歌声转换**：Seed-VC + Demucs（可选，独立 Python 环境；分别负责音色转换与原曲人声分离）
 - **媒体**：MoviePy、FFmpeg、PyAV、faster-whisper、cryptography（NCM 本地解码）
+- **图像**：rembg + onnxruntime（BiRefNet / ISNet / u2net 抠图）、Pillow、OpenCV
 - **文档**：PyMuPDF、python-docx、PowerPoint COM / LibreOffice
 
 ## 许可证

@@ -31,6 +31,19 @@ This project supports the following third-party local voice clone engine:
   the local NCM container converter. It is an independent third-party package;
   review its Apache-2.0/BSD-3-Clause license notices before redistribution.
 
+- **BiRefNet** (default matting model, weights at `~/.u2net/birefnet-general.onnx`, ~928 MB):
+  used by `src/image_cutout.py` for background removal, executed locally through
+  rembg + onnxruntime. BiRefNet (code and weights, ZhengPeng7/BiRefNet) is released
+  under the MIT License and may be used commercially. The weights are **not** stored
+  in this repository; they are downloaded to the user's home directory on first use.
+
+- **rembg / onnxruntime / OpenCV** (Python dependencies): `src/image_cutout.py` relies on
+  rembg for model loading and inference, onnxruntime for the execution backend, and
+  OpenCV for alpha distance transform / morphology. All three are MIT/ Apache-2.0
+  licensed. **Note:** the default model shipped by rembg 2.0.80+ is RMBG-2.0, which is
+  **CC BY-NC (non-commercial)**; this project deliberately does not use it as the
+  default and selects BiRefNet instead.
+
 Reference voices must only be uploaded when the user has the right to use that
 voice. The application requires an explicit authorization confirmation before
 upload and stores the confirmation with the private voice record.
