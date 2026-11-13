@@ -2,7 +2,7 @@
 (function () {
     'use strict';
     const $ = (id) => document.getElementById(id);
-    const labels = { material_upload: '导入素材', voice_analyze: '分析参考音频', video: '讲解视频', manuscript: '文稿', tts: '语音合成', tts_batch: '批量配音', singing_vc: 'AI 唱歌', ncm_conversion: '音频转换', audio_conversion: '音频转换', voice_create: '创建音色', voice_transcribe: '识别逐字稿', imagegen: 'AI 生图', videogen: '视频生成' };
+    const labels = { material_upload: '导入素材', voice_analyze: '分析参考音频', video: '讲解视频', manuscript: '文稿', tts: '语音合成', tts_batch: '批量配音', singing_vc: 'AI 唱歌', ncm_conversion: '音频转换', audio_conversion: '音频转换', voice_create: '创建音色', voice_transcribe: '识别逐字稿', imagegen: 'AI 生图', videogen: 'AI 视频生成' };
     const states = { pending: '等待执行', processing: '正在执行', completed: '已完成', done: '已完成', failed: '失败', error: '失败', cancelled: '已取消' };
     const terminal = ['completed', 'done', 'failed', 'error', 'cancelled'];
     function node(tag, cls, text) {
@@ -12,13 +12,82 @@
     function link(text, href, cls) {
         const el = node('a', cls, text); el.href = href; return el;
     }
+    // 全站导航单一来源：普通项为一级入口，带 children 的项渲染为下拉分组（二级）。
+    // 页面 HTML 里只保留空的 .nav-links 容器，由这里统一填充。
+    const NAV = [
+        { label: '素材转视频', href: '/', paths: ['/', '/materials', '/manuscript', '/generate'] },
+        { label: '视频创作', children: [
+            { label: 'AI 视频生成', href: '/videogen' },
+            { label: 'AI 生图', href: '/imagegen' },
+        ] },
+        { label: '音频创作', children: [
+            { label: 'TTS 语音合成', href: '/tts' },
+            { label: 'AI 唱歌', href: '/singing' },
+            { label: '音频转换', href: '/audio-converter' },
+        ] },
+        { label: '任务队列', href: '/queue' },
+    ];
+    function navActive(item) {
+        return (item.paths || [item.href]).includes(location.pathname);
+    }
+    function renderNav(container) {
+        if (!container) return;
+        const groups = [];
+        const setOpen = (group, open) => {
+            group.classList.toggle('open', open);
+            group.querySelector('.nav-group-toggle').setAttribute('aria-expanded', String(open));
+        };
+        NAV.forEach((item) => {
+            if (!item.children) {
+                const active = navActive(item);
+                const anchor = link(item.label, item.href, 'nav-link' + (active ? ' active' : ''));
+                if (active) anchor.setAttribute('aria-current', 'page');
+                container.append(anchor);
+                return;
+            }
+            const group = node('div', 'nav-group');
+            if (item.children.some(navActive)) group.classList.add('active');
+            const toggle = node('button', 'nav-link nav-group-toggle', item.label);
+            toggle.type = 'button';
+            toggle.setAttribute('aria-haspopup', 'true');
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.append(node('span', 'nav-caret'));
+            toggle.addEventListener('click', () => setOpen(group, !group.classList.contains('open')));
+            group.addEventListener('focusout', (event) => {
+                if (!group.contains(event.relatedTarget)) setOpen(group, false);
+            });
+            const menu = node('div', 'nav-menu');
+            item.children.forEach((child) => {
+                const active = navActive(child);
+                const anchor = link(child.label, child.href, 'nav-link' + (active ? ' active' : ''));
+                if (active) anchor.setAttribute('aria-current', 'page');
+                anchor.addEventListener('click', () => setOpen(group, false));
+                menu.append(anchor);
+            });
+            group.append(toggle, menu);
+            container.append(group);
+            groups.push(group);
+        });
+        document.addEventListener('click', (event) => {
+            groups.forEach((group) => {
+                if (group.classList.contains('open') && !group.contains(event.target)) setOpen(group, false);
+            });
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return;
+            groups.forEach((group) => {
+                if (group.classList.contains('open')) {
+                    setOpen(group, false);
+                    group.querySelector('.nav-group-toggle').focus();
+                }
+            });
+        });
+    }
     function init() {
         const main = document.querySelector('main.app');
         const nav = document.querySelector('.mainnav');
         if (!main || !nav) return;
-        const links = nav.querySelector('.nav-links');
-        links.append(link('任务队列', '/queue', 'nav-link' + (location.pathname === '/queue' ? ' active' : '')));
-        if (location.pathname === '/queue') links.lastChild.setAttribute('aria-current', 'page');
+        renderNav(nav.querySelector('.nav-links'));
         const strip = node('a', 'queue-strip');
         strip.href = '/queue'; strip.setAttribute('aria-label', '查看全站任务队列');
         strip.append(node('span', 'queue-indicator'), node('strong', '', '任务队列'), node('span', 'queue-strip-copy', '正在连接…'), node('span', 'queue-strip-action', '查看队列 →'));

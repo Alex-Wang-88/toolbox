@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>视频生成 - 音视频工具</title>
+    <title>AI 视频生成 - 音视频工具</title>
     <link rel="stylesheet" href="/ui.css">
     <script src="/theme.js"></script>
     <script src="/app_common.js"></script>
@@ -136,19 +136,12 @@
     <main class="app">
         <nav class="mainnav" aria-label="主导航">
             <a class="nav-brand" href="/">音视频工具</a>
-            <div class="nav-links">
-                <a class="nav-link" href="/">图片视频生成</a>
-                <a class="nav-link" href="/tts">TTS 语音合成</a>
-                <a class="nav-link" href="/singing">AI 唱歌</a>
-                <a class="nav-link" href="/audio-converter">音频转换</a>
-                <a class="nav-link" href="/imagegen">AI 生图</a>
-                <a class="nav-link active" href="/videogen" aria-current="page">视频生成</a>
-            </div>
+            <div class="nav-links"><!-- 由 workspace.js 按 NAV 配置统一渲染 --></div>
         </nav>
 
         <header class="top">
-            <h1>视频生成
-                <small>输入描述，本地 ComfyUI + MiniMax H3 生成带音频的短视频</small>
+            <h1>AI 视频生成
+                <small>输入描述或参考图，本地 ComfyUI + MiniMax H3 生成带音频的短视频</small>
             </h1>
         </header>
 
@@ -721,6 +714,33 @@
             if (audioHint) audioHint.hidden = limits.audio !== false;
         }
 
+        // AI 生图页「⇢ 用作视频首帧」的中转：读 localStorage 里的图片 URL，
+        // 转 File 后塞进 #firstFrameFile 并触发 change，完全复用既有上传链路。
+        async function consumeHandoffFirstFrame() {
+            let payload = null;
+            try { payload = JSON.parse(localStorage.getItem('toolbox-handoff-first-frame') || 'null'); } catch (e) { /* 忽略坏数据 */ }
+            if (!payload || !payload.url) return;
+            localStorage.removeItem('toolbox-handoff-first-frame');
+            if (Date.now() - (payload.ts || 0) > 10 * 60 * 1000) return; // 过期不自动带图
+            try {
+                const res = await fetch(payload.url, { cache: 'no-store' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const blob = await res.blob();
+                if (!/^image\//.test(blob.type || '')) throw new Error('不是图片：' + blob.type);
+                const last = decodeURIComponent((payload.url.split('/').pop() || '')).trim();
+                const name = /\.png$/i.test(last) ? last : 'first-frame.png';
+                const dt = new DataTransfer();
+                dt.items.add(new File([blob], name, { type: blob.type || 'image/png' }));
+                $('mode').value = 'first_frame';
+                syncModeBlocks();
+                $('firstFrameFile').files = dt.files;
+                $('firstFrameFile').dispatchEvent(new Event('change', { bubbles: true }));
+                log('已带入 AI 生图结果作为首帧，正在上传');
+            } catch (e) {
+                showMsg('自动带入生图首帧失败：' + e.message + '，可手动上传', 'error');
+            }
+        }
+
         (async function boot() {
             // 就绪探针：环境缺失时提前给出可行动的提示；顺带用后端白名单填充下拉
             try {
@@ -746,6 +766,7 @@
             syncModeBlocks();
             renderThumbs();
             loadHistory();
+            consumeHandoffFirstFrame();
             resumeTask();
         }());
     }());

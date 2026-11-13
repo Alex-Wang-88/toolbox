@@ -33,6 +33,8 @@ class FrontendWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = (PROJECT_ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        # 克隆音色表单已抽为共享模块（index 与 tts 页共用），表单契约断言跟随该文件。
+        cls.voice_form = (PROJECT_ROOT / "static" / "voice_clone_form.js").read_text(encoding="utf-8")
         cls.parser = _IdCollector()
         cls.parser.feed(cls.html)
 
@@ -77,11 +79,14 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertIn('id="generationEstimateHint"', self.html)
         self.assertIn("status.logs", self.html)
         self.assertIn("正在生成配音", self.html)
-        self.assertIn("/voices/transcribe", self.html)
-        self.assertIn("录音逐字稿（选填）", self.html)
-        self.assertIn('id="voiceLanguageInput"', self.html)
+        # 逐字稿/语言契约在共享表单模块里；页面要引入模块并提供挂载点
+        self.assertIn('src="/voice_clone_form.js"', self.html)
+        self.assertIn('id="voiceCreateMount"', self.html)
+        self.assertIn("/voices/transcribe", self.voice_form)
+        self.assertIn("录音逐字稿（选填）", self.voice_form)
+        self.assertIn('id="voiceLanguageInput"', self.voice_form)
         for language in ("auto", "zh", "en", "ja", "ko", "de", "es", "fr", "it", "ru"):
-            self.assertIn(f'value="{language}"', self.html)
+            self.assertIn(f'value="{language}"', self.voice_form)
         self.assertIn("status.indeterminate", self.html)
         self.assertIn("async: true", self.html)
 
@@ -111,49 +116,52 @@ class FrontendWorkflowTests(unittest.TestCase):
         self.assertIn("TOOLBOX_current_project_v1", self.html)
 
     def test_video_page_has_voice_clip_editor(self):
-        for control_id in (
-            "voiceClipEditor", "voiceWaveform",
-            "voiceDenoiseInput", "voicePlaySelectionBtn", "voiceProcessedPreviewBtn",
-        ):
-            self.assertIn(f'id="{control_id}"', self.html)
-        self.assertNotIn('id="voiceClipStart"', self.html)
-        self.assertNotIn('id="voiceClipDuration"', self.html)
-        self.assertIn('role="slider"', self.html)
+        # 波形裁剪编辑器的 DOM 由 voice_clone_form.js 生成，页面只负责加载两个脚本
+        for control_id in ("voiceClipEditor", "voiceWaveform",
+                           "voiceDenoiseInput", "voicePlaySelectionBtn", "voiceProcessedPreviewBtn"):
+            self.assertIn(f'id="{control_id}"', self.voice_form)
         self.assertIn('src="/voice_clip_editor.js"', self.html)
-        self.assertIn("voiceClipEditor.appendTo", self.html)
+        self.assertIn('src="/voice_clone_form.js"', self.html)
+        self.assertNotIn('id="voiceClipStart"', self.voice_form)
+        self.assertNotIn('id="voiceClipDuration"', self.voice_form)
+        self.assertIn('role="slider"', self.voice_form)
+        self.assertIn("voiceClipEditor.appendTo", self.voice_form)
 
 
 class TtsFrontendTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = (PROJECT_ROOT / "static" / "tts.html").read_text(encoding="utf-8")
+        # 克隆音色表单为共享模块（与 index 页共用），表单契约断言跟随该文件。
+        cls.voice_form = (PROJECT_ROOT / "static" / "voice_clone_form.js").read_text(encoding="utf-8")
 
     def test_tts_page_can_create_cloned_voice(self):
+        # 页面只负责加载共享模块并提供挂载点，表单 DOM 与提交流程在模块里
+        self.assertIn('src="/voice_clone_form.js"', self.html)
+        self.assertIn('id="voiceCreateMount"', self.html)
+        self.assertIn("VoiceCloneForm.mount", self.html)
         for control_id in (
             "voiceCreateForm", "voiceFileInput", "voiceDrop", "voiceNameInput",
             "voiceLanguageInput", "voiceRefTextInput", "voiceConsentInput", "voiceCreateBtn",
         ):
-            self.assertIn(f'id="{control_id}"', self.html)
-        self.assertIn("/voices/create", self.html)
-        self.assertIn("/voices/transcribe", self.html)
-        self.assertIn("录音逐字稿（选填）", self.html)
+            self.assertIn(f'id="{control_id}"', self.voice_form)
+        self.assertIn("/voices/create", self.voice_form)
+        self.assertIn("/voices/transcribe", self.voice_form)
+        self.assertIn("录音逐字稿（选填）", self.voice_form)
         for language in ("auto", "zh", "en", "ja", "ko", "de", "es", "fr", "it", "ru"):
-            self.assertIn(f'value="{language}"', self.html)
+            self.assertIn(f'value="{language}"', self.voice_form)
+        self.assertIn("TaskResume.request", self.voice_form)
+        self.assertIn("voiceClipEditor.appendTo", self.voice_form)
         self.assertIn("TaskResume.watch", self.html)
         self.assertIn("async: true", self.html)
-        for control_id in (
-            "voiceClipEditor", "voiceWaveform",
-            "voiceDenoiseInput", "voicePlaySelectionBtn", "voiceProcessedPreviewBtn",
-        ):
-            self.assertIn(f'id="{control_id}"', self.html)
-        self.assertNotIn('id="voiceClipStart"', self.html)
-        self.assertNotIn('id="voiceClipDuration"', self.html)
-        self.assertIn("voiceClipEditor.appendTo", self.html)
+        self.assertNotIn('id="voiceClipStart"', self.voice_form)
+        self.assertNotIn('id="voiceClipDuration"', self.voice_form)
 
     def test_tts_page_uses_the_shared_color_theme_contract(self):
         self.assertIn('src="/theme.js"', self.html)
         self.assertIn('href="/ui.css"', self.html)
-        self.assertIn('data-advanced="voice"', self.html)
+        # data-advanced="voice" 由共享表单模块生成，workspace.js 据此收进二级视图
+        self.assertIn('data-advanced="voice"', self.voice_form)
 
     def test_tts_voice_groups_match_main_page_and_start_collapsed(self):
         self.assertIn("Edge TTS 云端音色", self.html)

@@ -752,6 +752,11 @@ def voice_clip_editor_script():
     return send_from_directory(STATIC_DIR, "voice_clip_editor.js")
 
 
+@app.route("/voice_clone_form.js")
+def voice_clone_form_script():
+    return send_from_directory(STATIC_DIR, "voice_clone_form.js")
+
+
 @app.route("/ui.css")
 def ui_stylesheet():
     """全站统一的界面样式（设计令牌与公共组件）。"""

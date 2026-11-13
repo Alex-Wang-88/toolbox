@@ -306,6 +306,68 @@ img, svg, canvas, audio, video { max-width: 100%; }
     box-shadow: var(--shadow-xs);
 }
 
+/* 导航下拉分组（二级菜单）：开合完全由 workspace.js 控制（.open），避免与 hover 冲突 */
+.nav-group { position: relative; display: flex; }
+
+/* 分组开关是 <button>，去掉 UA 默认的灰底与边框，视觉与 <a> 导航项完全一致 */
+.nav-group > .nav-group-toggle {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+
+/* 当前页面属于该分组时，分组开关与子项一样高亮（.active 由 workspace.js 加在分组上） */
+.nav-group.active > .nav-group-toggle {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-weight: 600;
+    box-shadow: var(--shadow-xs);
+}
+
+.nav-caret {
+    width: 0;
+    height: 0;
+    margin-left: var(--sp-2);
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid currentColor;
+    transition: transform var(--dur-1) var(--ease);
+}
+
+.nav-group.open .nav-caret { transform: rotate(180deg); }
+
+.nav-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 176px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--sp-2);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-xs);
+    z-index: 50;
+    opacity: 0;
+    transform: translateY(-4px);
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease),
+                visibility var(--dur-1) var(--ease);
+}
+
+.nav-group.open .nav-menu {
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.nav-menu .nav-link { width: 100%; box-sizing: border-box; }
+
 /* 导航右侧工具区 */
 .nav-tools { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
 
@@ -1878,6 +1940,28 @@ audio { width: 100%; height: var(--h-md); }
     }
     .nav-links::-webkit-scrollbar { display: none; }
     .nav-link { flex: 1 0 auto; justify-content: center; min-height: var(--h-md); padding: 0 var(--sp-3); font-size: var(--fs-12); }
+    /* 窄屏下 .nav-links 是横向滚动容器，绝对定位的浮层会被裁剪；
+       改为 display:contents 让子项内联进滚动行，点击分组按钮展开/收起。 */
+    .nav-group { display: contents; }
+    .nav-group.active > .nav-group-toggle { box-shadow: none; }
+    .nav-caret { margin-left: var(--sp-1); }
+    .nav-menu {
+        position: static;
+        flex-direction: row;
+        min-width: 0;
+        padding: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        opacity: 1;
+        transform: none;
+        visibility: visible;
+        pointer-events: auto;
+        gap: 2px;
+    }
+    .nav-group:not(.open) .nav-menu { display: none; }
+    .nav-menu .nav-link { flex: 1 0 auto; justify-content: center; font-size: var(--fs-12); }
+    .nav-menu .nav-link::before { content: "·"; margin-right: var(--sp-1); color: var(--muted); }
     .nav-tools { margin-left: auto; }
     .settings-popover {
         position: fixed;
