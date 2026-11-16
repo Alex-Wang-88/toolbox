@@ -48,16 +48,22 @@ _NVENC_AVAILABLE = None
 
 
 def _silent_kwargs() -> dict:
-    """Windows 下隐藏子进程窗口的启动参数。"""
+    """Windows 下隐藏子进程窗口的启动参数。
+
+    stdin 必须指向 DEVNULL：ffmpeg 默认会轮询 stdin 等待交互命令（如 q 退出），
+    服务以无控制台/后台方式启动时 stdin 是永不关闭的管道，ffmpeg 会因此卡死。
+    """
+    kwargs = {"stdin": subprocess.DEVNULL}
     if os.name != "nt":
-        return {}
+        return kwargs
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     startupinfo.wShowWindow = 0
-    return {
+    kwargs.update({
         "creationflags": subprocess.CREATE_NO_WINDOW,
         "startupinfo": startupinfo,
-    }
+    })
+    return kwargs
 
 
 class VideoComposer:
@@ -270,14 +276,18 @@ class VideoComposer:
                         escaped = silence_600.replace("\\", "/")
                         f.write(f"file '{escaped}'\n")
 
-            # FFmpeg concat
+            # FFmpeg concat。必须重编码为 PCM，不能用 -c copy：
+            # edge-tts 分段是 MP3，copy 会把 MP3 数据包进 .wav 容器，
+            # ffmpeg 8.1.1 在多输入 filter_complex 里读这种容器会死锁
+            # （音视频单独跑都正常，合并即卡死）；转 PCM 成本 <0.1s。
             ffmpeg = resolve_ffmpeg()
             if not ffmpeg:
                 raise RuntimeError("FFmpeg 不可用")
 
             cmd = [
                 ffmpeg, "-y", "-f", "concat", "-safe", "0",
-                "-i", list_path, "-c", "copy", output_wav,
+                "-i", list_path, "-ar", "22050", "-ac", "1",
+                "-c:a", "pcm_s16le", output_wav,
             ]
             result = subprocess.run(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

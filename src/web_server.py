@@ -713,6 +713,16 @@ def run_video_generation(
         generation_lock.release()
 
 
+# 一句话自动编排（话题→搜素材→逐页文稿）：独立模块 + 依赖注入，避免主文件膨胀
+from topic_video_api import register_topic_video
+register_topic_video(
+    app,
+    tasks=tasks, enqueue_task=enqueue_task,
+    update_progress=update_task_progress, assert_not_cancelled=assert_not_cancelled,
+    static_dir=STATIC_DIR,
+)
+
+
 @app.route("/")
 @app.route("/materials")
 @app.route("/manuscript")

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一句话成片 - 音视频工具</title>
+    <link rel="stylesheet" href="/ui.css">
+    <script src="/theme.js"></script>
+    <script src="/app_common.js"></script>
+    <script src="/workspace.js" defer></script>
+    <style>
+        /* ==================================================
+           本页专属布局：一句话成片（话题→搜素材→自动编排→确认→生成）
+           颜色、字号、按钮、输入框全部来自 ui.css
+           ================================================== */
+        .notice { margin-bottom: var(--sp-4); }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
+            gap: var(--sp-7);
+            align-items: start;
+        }
+        @media (max-width: 980px) { .workspace { grid-template-columns: 1fr; } }
+
+        textarea#requestInput {
+            width: 100%; min-height: 88px; resize: vertical;
+            padding: var(--sp-3); border-radius: 10px;
+            border: 1px solid var(--border); background: var(--bg-elev, transparent);
+            color: var(--text); font: inherit;
+        }
+        .intent-row { display: flex; gap: var(--sp-3); align-items: center; margin-top: var(--sp-3); flex-wrap: wrap; }
+        .intent-row select { padding: var(--sp-2); border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elev, transparent); color: var(--text); }
+
+        .material-progress { margin-top: var(--sp-4); }
+        .material-progress .bar { height: 8px; border-radius: 6px; background: var(--border); overflow: hidden; }
+        .material-progress .fill { height: 100%; width: 0%; background: var(--accent, #4a7dff); transition: width .4s; }
+        .progress-text { margin-top: 6px; color: var(--text-2, #888); font-size: 13px; }
+        .material-live-log { margin-top: 8px; font-size: 12px; color: var(--text-2, #888); white-space: pre-wrap; max-height: 130px; overflow: auto; }
+
+        .page-card { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--sp-3); padding: var(--sp-3); border: 1px solid var(--border); border-radius: 12px; margin-top: var(--sp-3); }
+        .page-card img { width: 100%; height: 96px; object-fit: cover; border-radius: 8px; background: #eee; }
+        .page-card textarea { width: 100%; min-height: 92px; resize: vertical; padding: var(--sp-2); border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elev, transparent); color: var(--text); font: inherit; font-size: 13px; }
+        .page-meta { display: flex; gap: var(--sp-2); align-items: center; margin-top: 6px; flex-wrap: wrap; font-size: 12px; color: var(--text-2, #888); }
+        .page-meta select { padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-elev, transparent); color: var(--text); font-size: 12px; }
+        .page-name { font-weight: 600; font-size: 12px; }
+
+        .result-actions { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); align-items: center; flex-wrap: wrap; }
+        .warn-list { margin-top: var(--sp-3); font-size: 13px; color: #b8860b; }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <nav class="mainnav" aria-label="主导航">
+            <a class="nav-brand" href="/">音视频工具</a>
+            <div class="nav-links"><!-- 由 workspace.js 按 NAV 配置统一渲染 --></div>
+        </nav>
+
+        <header class="hero">
+            <div>
+                <h1>一句话成片</h1>
+                <p>输入一个主题，自动搜索配图与资料，本地模型编排逐页文稿，确认后走素材转视频流程。</p>
+            </div>
+            <div class="status-badge" id="envBadge" role="status" aria-live="polite">正在检查环境…</div>
+        </header>
+
+        <section class="notice" id="envNotice" role="status" aria-live="polite" style="display:none">
+            <strong id="envNoticeTitle"></strong>
+            <span id="envNoticeText"></span>
+        </section>
+
+        <div class="workspace">
+            <!-- ===================== 左：输入与进度 ===================== -->
+            <section class="panel">
+                <div class="panel-head"><div><div class="panel-title">描述你要的视频</div><div class="panel-subtitle">例如：帮我做一个介绍张仲景的视频</div></div></div>
+                <div class="panel-body">
+                    <textarea id="requestInput" placeholder="帮我做一个介绍×××的视频"></textarea>
+                    <div class="intent-row">
+                        <label for="pagesSelect">页数</label>
+                        <select id="pagesSelect">
+                            <option value="">自动（3-6）</option>
+                            <option value="3">3 页</option>
+                            <option value="4">4 页</option>
+                            <option value="5">5 页</option>
+                            <option value="6">6 页</option>
+                        </select>
+                        <button class="primary" id="planBtn">一键编排</button>
+                        <button class="secondary" id="cancelBtn" style="display:none">取消</button>
+                    </div>
+
+                    <div class="material-progress" id="planProgress" style="display:none">
+                        <div class="bar"><div class="fill" id="planFill"></div></div>
+                        <div class="progress-text" id="planMsg">等待开始</div>
+                        <div class="material-live-log" id="planLog" role="status" aria-live="polite">等待开始</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===================== 右：编排结果确认 ===================== -->
+            <section class="panel">
+                <div class="panel-head"><div><div class="panel-title">确认文稿与配图</div><div class="panel-subtitle">可直接修改讲解词与重点标记，确认后生成视频</div></div></div>
+                <div class="panel-body">
+                    <div class="empty" id="emptyState">还没有编排结果。左侧输入主题并点击「一键编排」。</div>
+                    <div id="resultWrap" style="display:none">
+                        <h3 id="planTitle" style="margin:0 0 var(--sp-2)"></h3>
+                        <div class="warn-list" id="warnList" style="display:none"></div>
+                        <div id="pageCards"></div>
+                        <div class="result-actions">
+                            <button class="primary" id="generateBtn">生成视频</button>
+                            <span id="generateHint" style="font-size:13px;color:var(--text-2,#888)">提交到统一任务队列</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+    (function () {
+        'use strict';
+        const $ = (id) => document.getElementById(id);
+        const IMPORTANCE_LABELS = { low: '低：简短带过', normal: '普通', high: '次重点', key: '关键画面' };
+        let currentTaskId = null;
+        let plan = null;      // 编排结果（images/image_items/manuscript）
+        let pollTimer = null;
+        let envInfo = null;
+
+        async function fetchJSON(url, options) {
+            const resp = await fetch(url, options);
+            const body = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(body.error || (resp.status + ' ' + resp.statusText));
+            return body;
+        }
+
+        // ---------- 环境自检 ----------
+        async function checkEnv() {
+            try {
+                envInfo = await fetchJSON('/api/topic-video/env');
+                const ok = envInfo.ollama_ok && envInfo.compose_model_ok;
+                $('envBadge').textContent = ok ? '本地模型就绪' : '环境未就绪';
+                if (!ok) {
+                    $('envNotice').style.display = '';
+                    $('envNoticeTitle').textContent = '自动编排需要本地模型';
+                    $('envNoticeText').textContent = envInfo.errors.join('；');
+                }
+            } catch (err) {
+                $('envBadge').textContent = '环境检查失败';
+                $('envNotice').style.display = '';
+                $('envNoticeTitle').textContent = '无法连接服务';
+                $('envNoticeText').textContent = String(err.message || err);
+            }
+        }
+
+        // ---------- 编排 ----------
+        async function startPlan() {
+            const request = $('requestInput').value.trim();
+            if (!request) { alert('请先用一句话描述要做的视频'); return; }
+            const payload = { request: request, async: true };
+            const pages = $('pagesSelect').value;
+            if (pages) payload.pages = parseInt(pages, 10);
+            try {
+                $('planBtn').disabled = true;
+                $('generateBtn').disabled = true;
+                const body = await fetchJSON('/api/topic-video/plan', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                currentTaskId = body.task_id;
+                $('planProgress').style.display = '';
+                $('planFill').style.width = '0%';
+                $('planLog').textContent = '任务已进入队列';
+                $('cancelBtn').style.display = '';
+                pollTimer = setInterval(pollStatus, 1000);
+            } catch (err) {
+                $('planBtn').disabled = false;
+                alert('无法开始编排：' + (err.message || err));
+            }
+        }
+
+        async function pollStatus() {
+            if (!currentTaskId) return;
+            let task;
+            try {
+                task = await fetchJSON('/api/status/' + currentTaskId);
+            } catch (err) {
+                stopPoll(null, '查询任务状态失败：' + (err.message || err)); return;
+            }
+            $('planFill').style.width = (task.progress || 0) + '%';
+            $('planMsg').textContent = task.message || '处理中...';
+            $('planLog').textContent = (task.logs || []).map(l => l.time + ' ' + l.message).join('\n');
+            if (task.status === 'completed') {
+                stopPoll(task);
+            } else if (task.status === 'failed' || task.status === 'cancelled') {
+                stopPoll(null, task.message || '任务' + (task.status === 'cancelled' ? '已取消' : '失败'));
+            }
+        }
+
+        function stopPoll(task, errorMessage) {
+            clearInterval(pollTimer); pollTimer = null;
+            $('planBtn').disabled = false;
+            $('cancelBtn').style.display = 'none';
+            if (errorMessage) {
+                $('planMsg').textContent = errorMessage;
+                $('planMsg').style.color = '#c0392b';
+                return;
+            }
+            $('planMsg').style.color = '';
+            plan = task.result;
+            renderPlan(plan);
+        }
+
+        function renderPlan(p) {
+            $('emptyState').style.display = 'none';
+            $('resultWrap').style.display = '';
+            $('planTitle').textContent = p.title || p.topic;
+            $('generateBtn').disabled = false;
+            const warns = p.warnings || [];
+            $('warnList').style.display = warns.length ? '' : 'none';
+            $('warnList').innerHTML = warns.map(w => '⚠ ' + escapeHTML(w)).join('<br>');
+
+            const wrap = $('pageCards');
+            wrap.innerHTML = '';
+            p.image_items.forEach((item, idx) => {
+                const meta = (p.images || []).find(im => im.name === item.name) || {};
+                const text = (p.manuscript[idx] && p.manuscript[idx].text) || '';
+                const card = document.createElement('div');
+                card.className = 'page-card';
+                card.innerHTML =
+                    '<div><img alt="' + escapeHTML(item.name) + '" src="' + (meta.preview_url || '') + '">' +
+                    '<div class="page-meta"><span class="page-name">' + escapeHTML(item.name) + '</span></div></div>' +
+                    '<div><textarea id="pageText' + idx + '">' + escapeHTML(text) + '</textarea>' +
+                    '<div class="page-meta"><label>重点标记</label><select id="pageImp' + idx + '">' +
+                    Object.keys(IMPORTANCE_LABELS).map(k =>
+                        '<option value="' + k + '"' + (k === item.importance ? ' selected' : '') + '>' + IMPORTANCE_LABELS[k] + '</option>').join('') +
+                    '</select>' + (meta.source_title ? '<span title="图片来源描述">' + escapeHTML(meta.source_title) + '</span>' : '') +
+                    '</div></div>';
+                wrap.appendChild(card);
+            });
+        }
+
+        function escapeHTML(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g,
+                c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        // ---------- 生成视频 ----------
+        async function generateVideo() {
+            if (!plan) return;
+            const image_items = plan.image_items.map((item, idx) => ({
+                file: item.file, name: item.name,
+                importance: $('pageImp' + idx).value, transition: 'none'
+            }));
+            const manuscript = plan.image_items.map((item, idx) => ({
+                text: $('pageText' + idx).value.trim()
+            }));
+            if (manuscript.some(m => !m.text)) { alert('每一页都需要讲解词，请补齐空页'); return; }
+            try {
+                $('generateBtn').disabled = true;
+                const body = await fetchJSON('/api/generate', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image_items, manuscript,
+                        voice: 'default', speech_speed: 1.0, subtitle_mode: 'on',
+                        confirm_large: true, async: true
+                    })
+                });
+                $('generateHint').innerHTML = '已提交视频任务 <a href="/queue">查看队列 →</a>';
+            } catch (err) {
+                $('generateBtn').disabled = false;
+                alert('提交失败：' + (err.message || err));
+            }
+        }
+
+        async function cancelPlan() {
+            if (!currentTaskId) return;
+            try { await fetchJSON('/api/cancel/' + currentTaskId, { method: 'POST' }); } catch (e) { /* 忽略 */ }
+        }
+
+        $('planBtn').addEventListener('click', startPlan);
+        $('generateBtn').addEventListener('click', generateVideo);
+        $('cancelBtn').addEventListener('click', cancelPlan);
+        checkEnv();
+    })();
+    </script>
+</body>
+</html>

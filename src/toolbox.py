@@ -175,12 +175,15 @@ def silent_popen(*args, **kwargs):
 subprocess.Popen = silent_popen
 
 def silent_subprocess_kwargs() -> Dict:
+    # stdin 必须指向 DEVNULL：ffmpeg 默认轮询 stdin 等交互命令，后台/无控制台
+    # 启动时 stdin 是永不关闭的管道，会让 ffmpeg 卡死（与 video_composer 同款修复）。
     if os.name != 'nt':
-        return {}
+        return {'stdin': subprocess.DEVNULL}
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     startupinfo.wShowWindow = 0
-    return {'creationflags': subprocess.CREATE_NO_WINDOW, 'startupinfo': startupinfo}
+    return {'stdin': subprocess.DEVNULL, 'creationflags': subprocess.CREATE_NO_WINDOW,
+            'startupinfo': startupinfo}
 
 def post_without_env_proxy(url: str, **kwargs):
     session = requests.Session()

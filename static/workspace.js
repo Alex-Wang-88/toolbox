@@ -17,6 +17,7 @@
     const NAV = [
         { label: '素材转视频', href: '/', paths: ['/', '/materials', '/manuscript', '/generate'] },
         { label: '视频创作', children: [
+            { label: '一句话成片', href: '/topic-video' },
             { label: 'AI 视频生成', href: '/videogen' },
             { label: 'AI 生图', href: '/imagegen' },
         ] },

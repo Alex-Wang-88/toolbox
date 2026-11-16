@@ -18,6 +18,7 @@
 - **通用音频转换**：自动识别输入音频，可混合批量转换为 WAV、MP3、FLAC、M4A、AAC、OGG 或 Opus，兼容 NCM 本地解码；AI 唱歌原曲模式也可直接接收 NCM（见 [`docs/audio_converter.md`](docs/audio_converter.md)）
 - **视频链式续写**：把「上一段末帧 → 下一段首帧」做成通用模块，长镜头分段生成后无损拼接，自带接缝质检与断点续跑（见 [`docs/video_chainer.md`](docs/video_chainer.md)）
 - **通用抠图**：BiRefNet（MIT，默认）为主，可切 ISNet / u2net；边缘精修去背景污染，输出白底/透明图或统一画布（见 [`docs/image_cutout.md`](docs/image_cutout.md)）
+- **一句话成片**：输入主题自动搜图搜资料，本地小模型编排逐页文稿（意图模型 CPU 常驻零显存，编排模型用后即卸），确认后走素材转视频管线（见 [`docs/topic_video.md`](docs/topic_video.md)）
 
 ## 系统架构
 
