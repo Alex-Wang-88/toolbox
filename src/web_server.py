@@ -1353,6 +1353,11 @@ def get_config():
         "gpu_accel": False,
         "whisper_model": "base",
         "whisper_available": False,
+        # 音频转文稿引擎：qwen3（本地 Qwen3-ASR-1.7B 常驻服务）/ whisper（兜底）
+        "asr_engine": "whisper",
+        "asr_qwen_available": False,
+        "asr_qwen_server_ready": False,
+        "asr_qwen_reason": "",
         "nvenc_supported": False,
         "nvenc_preset": "p1",
         "nvenc_cq": 23,
@@ -1411,6 +1416,18 @@ def get_config():
                 config["cuda_device"] = gpu_name or None
         else:
             config["cuda_device"] = None
+
+        # 音频转文稿引擎状态（纯文件系统检查 + 一次本地 health 探测，很快）
+        try:
+            from audio_transcriber import asr_status
+
+            status = asr_status()
+            config["asr_engine"] = status["engine"]
+            config["asr_qwen_available"] = status["qwen_available"]
+            config["asr_qwen_server_ready"] = status["qwen_server_ready"]
+            config["asr_qwen_reason"] = status["qwen_reason"]
+        except Exception:
+            pass
     except Exception:
         pass
     return jsonify(config)

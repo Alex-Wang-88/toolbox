@@ -36,6 +36,7 @@
 |---|---|---|
 | `runtime/` | 内置 Python 3.13.14 解释器 | ~316 MB |
 | `tts_poc/` | GPT-SoVITS V5 + CosyVoice3 两套引擎仓库、独立 venv 与模型权重 | ~15 GB+ |
+| `.venv_qwen_asr/` | 音频转文稿（Qwen3-ASR-1.7B）专用 venv，含 torch/cu128 | ~4 GB |
 | `bin/` | 内置 FFmpeg / ffprobe | ~434 MB |
 | `output/` `app_data/` `audio_assets/` `training_assets/` 等 | 运行时产物与素材 | 不定 |
 
@@ -93,6 +94,7 @@ TOOLBOX/
 - **TTS**：edge-tts、GPT-SoVITS V5（默认）、CosyVoice3（可切换，本地 GPU）
 - **歌声转换**：Seed-VC + Demucs（可选，独立 Python 环境；分别负责音色转换与原曲人声分离）
 - **媒体**：MoviePy、FFmpeg、PyAV、faster-whisper、cryptography（NCM 本地解码）
+- **语音识别**：Qwen3-ASR-1.7B（本地常驻服务，CUDA bf16）优先，faster-whisper 兜底；环境用 `scripts/setup_qwen_asr.py` 重建
 - **图像**：rembg + onnxruntime（BiRefNet / ISNet / u2net 抠图）、Pillow、OpenCV
 - **文档**：PyMuPDF、python-docx、PowerPoint COM / LibreOffice
 

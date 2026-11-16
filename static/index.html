@@ -2741,6 +2741,10 @@
         function renderGpu() {
             const c = gpuConfig || {};
             const align = c.whisper_available ? 'faster-whisper 精确对齐' : '文本长度估算';
+            // 音频转文稿引擎：千问常驻服务优先，未就绪时标注首次加载
+            const asr = c.asr_engine === 'qwen3'
+                ? `Qwen3-ASR-1.7B${c.asr_qwen_server_ready ? '' : '（首次调用加载）'}`
+                : `Faster-Whisper ${c.whisper_model || 'base'}`;
             const nvenc = c.nvenc_supported
                 ? `支持（档位 ${c.nvenc_preset || 'p1'}，CQ ${c.nvenc_cq != null ? c.nvenc_cq : 23}）`
                 : '不支持（软件编码）';
@@ -2759,7 +2763,7 @@
                 <div class="row"><span>CUDA 设备</span><b>${escapeHtml(c.cuda_device || 'CPU')}</b></div>
                 ${cloneRow}
                 <div class="row"><span>字幕对齐</span><b>${escapeHtml(align)}</b></div>
-                <div class="row"><span>Whisper 模型</span><b>${escapeHtml(c.whisper_model || 'base')}</b></div>
+                <div class="row"><span>语音识别</span><b>${escapeHtml(asr)}</b></div>
                 <div class="row"><span>NVENC 编码</span><b>${escapeHtml(nvenc)}</b></div>
             `;
             // 有 GPU 时默认展开
